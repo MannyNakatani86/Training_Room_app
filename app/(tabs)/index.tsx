@@ -1,31 +1,115 @@
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useRouter } from 'expo-router';
+import { useState } from 'react';
+import { Image, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import Modal from 'react-native-modal';
 
-export default function HomeScreen() {
+export default function Page() {
+  const router = useRouter();
+  const [showLogin, setShowLogin] = useState(false);
+  const [showSignUp, setShowSignUp] = useState(false);
+
   return (
     <View style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        <Text style={styles.headerText}>Training Room</Text>
+      {/* Logo */}
+      <Image
+        source={require('../../assets/training_room_logo.png')}
+        style={styles.logo}
+        resizeMode="contain"
+      />
+
+      <View style={{ flex: 1 }} />
+
+      {/* Buttons */}
+      <View style={styles.buttonContainer}>
+        <Pressable
+          style={styles.button}
+          onPress={() => setShowLogin(true)}
+        >
+          <Text style={styles.buttonText}>Log In</Text>
+        </Pressable>
+
+        <Pressable
+          style={[styles.button, styles.signUpButton]}
+          onPress={() => setShowSignUp(true)}
+        >
+          <Text style={styles.buttonText}>Sign Up</Text>
+        </Pressable>
       </View>
 
-      {/* Main content */}
-      <ScrollView contentContainerStyle={styles.content}>
-        {/* Example exercise card */}
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Push-Ups</Text>
-          <Text>3 sets x 12 reps</Text>
-        </View>
+      {/* Log In Bottom Sheet */}
+      <Modal
+        isVisible={showLogin}
+        swipeDirection="down"
+        onSwipeComplete={() => setShowLogin(false)}
+        onBackdropPress={() => setShowLogin(false)}
+        style={styles.bottomModal}
+      >
+        <View style={styles.modalForm}>
+          <Text style={styles.modalTitle}>Log In</Text>
 
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Squats</Text>
-          <Text>3 sets x 15 reps</Text>
-        </View>
+          <TextInput
+            style={styles.input}
+            placeholder="Email"
+            placeholderTextColor="#888"
+          />
+          <TextInput
+            style={styles.input}
+            placeholder="Password"
+            placeholderTextColor="#888"
+            secureTextEntry
+          />
 
-        {/* Add more cards as needed */}
-        <TouchableOpacity style={styles.button}>
-          <Text style={styles.buttonText}>Start Workout</Text>
-        </TouchableOpacity>
-      </ScrollView>
+          <Pressable
+            style={styles.submitButton}
+            onPress={() => {
+              setShowLogin(false); // close modal
+              router.push('/home'); // navigate to home
+            }}
+          >
+            <Text style={styles.submitButtonText}>Submit</Text>
+          </Pressable>
+        </View>
+      </Modal>
+
+      {/* Sign Up Bottom Sheet */}
+      <Modal
+        isVisible={showSignUp}
+        swipeDirection="down"
+        onSwipeComplete={() => setShowSignUp(false)}
+        onBackdropPress={() => setShowSignUp(false)}
+        style={styles.bottomModal}
+      >
+        <View style={styles.modalForm}>
+          <Text style={styles.modalTitle}>Sign Up</Text>
+
+          <TextInput
+            style={styles.input}
+            placeholder="Name"
+            placeholderTextColor="#888"
+          />
+          <TextInput
+            style={styles.input}
+            placeholder="Email"
+            placeholderTextColor="#888"
+          />
+          <TextInput
+            style={styles.input}
+            placeholder="Password"
+            placeholderTextColor="#888"
+            secureTextEntry
+          />
+
+          <Pressable
+            style={styles.submitButton}
+            onPress={() => {
+              setShowSignUp(false); // close modal
+              router.push('/home'); // navigate to home
+            }}
+          >
+            <Text style={styles.submitButtonText}>Create Account</Text>
+          </Pressable>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -33,51 +117,73 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    borderWidth: 4,          // black border around screen
-    borderColor: 'black',
-    backgroundColor: '#fff',
-  },
-  header: {
-    padding: 20,
-    backgroundColor: '#1e1e1e', // dark header like TeamBuildr
-  },
-  headerText: {
-    color: '#fff',
-    fontSize: 22,
-    fontWeight: 'bold',
-    textAlign: 'center',
-  },
-  content: {
-    padding: 15,
+    backgroundColor: 'black',
     alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingBottom: 30,
   },
-  card: {
-    width: '90%',
-    backgroundColor: '#f0f0f0',
-    padding: 15,
-    borderRadius: 10,
-    marginBottom: 15,
-    shadowColor: '#000',      // shadow for cards
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,             // for Android shadow
+  logo: {
+    width: 300,
+    height: 300,
+    marginTop: 100,
   },
-  cardTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    marginBottom: 5,
+  buttonContainer: {
+    width: '60%',
   },
   button: {
-    backgroundColor: '#1e1e1e',
-    padding: 15,
-    borderRadius: 10,
-    marginTop: 10,
-    width: '90%',
+    backgroundColor: 'red',
+    paddingVertical: 15,
+    borderRadius: 30,
+    marginBottom: 15,
     alignItems: 'center',
   },
+  signUpButton: {
+    backgroundColor: 'white',
+  },
   buttonText: {
-    color: '#fff',
+    color: 'black',
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+
+  /* Bottom sheet modal */
+  bottomModal: {
+    justifyContent: 'flex-end',
+    margin: 0,
+  },
+  modalForm: {
+    height: '50%',
+    backgroundColor: 'white',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    padding: 20,
+    alignItems: 'center',
+  },
+  modalTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    marginBottom: 20,
+  },
+  input: {
+    width: '100%',
+    height: 45,
+    borderColor: '#ccc',
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    marginBottom: 15,
+    color: 'black',
+  },
+  submitButton: {
+    backgroundColor: 'red',
+    width: '100%',
+    paddingVertical: 12,
+    borderRadius: 10,
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  submitButtonText: {
+    color: 'white',
     fontWeight: 'bold',
     fontSize: 16,
   },
