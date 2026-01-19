@@ -1,4 +1,4 @@
-import { IconSymbol } from '@/components/ui/icon-symbol';
+import { Ionicons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
 import React, { useRef, useState } from 'react';
 import {
@@ -17,42 +17,39 @@ import { Calendar } from 'react-native-calendars';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const { width } = Dimensions.get('window');
-const SIDEBAR_WIDTH = width * 0.7;
+const SIDEBAR_WIDTH = width * 0.5;
 
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  
-  // 1. ANIMATION VALUE
-  // 0 = Closed, 1 = Open
-  const animValue = useRef(new Animated.Value(0)).current;
-
   const today = new Date().toISOString().split('T')[0];
   const [selectedDate, setSelectedDate] = useState(today);
 
-  // 2. TOGGLE FUNCTION
-  const toggleSidebar = (open: boolean) => {
-    setIsSidebarOpen(open);
-    Animated.timing(animValue, {
-      toValue: open ? 1 : 0,
+  // --- ANIMATION LOGIC ---
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const slideAnim = useRef(new Animated.Value(0)).current;
+
+  const toggleMenu = () => {
+    const toValue = isMenuOpen ? 0 : 1;
+    Animated.timing(slideAnim, {
+      toValue,
       duration: 300,
-      easing: Easing.bezier(0.25, 0.1, 0.25, 1),
-      useNativeDriver: true, // Uses hardware acceleration
+      easing: Easing.bezier(0.4, 0, 0.2, 1),
+      useNativeDriver: true,
     }).start();
+    setIsMenuOpen(!isMenuOpen);
   };
 
-  // 3. INTERPOLATIONS (Linking 0-1 to pixel movements)
-  const sidebarTranslateX = animValue.interpolate({
+  const sidebarTranslateX = slideAnim.interpolate({
     inputRange: [0, 1],
-    outputRange: [-SIDEBAR_WIDTH, 0], // Slides from off-screen left to 0
+    outputRange: [-SIDEBAR_WIDTH, 0],
   });
 
-  const contentTranslateX = animValue.interpolate({
+  const contentTranslateX = slideAnim.interpolate({
     inputRange: [0, 1],
-    outputRange: [0, SIDEBAR_WIDTH], // Slides home screen to the right
+    outputRange: [0, SIDEBAR_WIDTH],
   });
 
-  const backdropOpacity = animValue.interpolate({
+  const overlayOpacity = slideAnim.interpolate({
     inputRange: [0, 1],
     outputRange: [0, 1],
   });
@@ -61,65 +58,70 @@ export default function HomeScreen() {
     <View style={styles.container}>
       <StatusBar style="light" />
 
-      {/* SIDEBAR (Animated) */}
+      {/* 1. SIDEBAR MENU (Z-Index 1) */}
       <Animated.View 
         style={[
           styles.sidebar, 
           { 
-            paddingTop: insets.top + 20,
+            paddingTop: insets.top + 20, 
             transform: [{ translateX: sidebarTranslateX }] 
           }
         ]}
       >
-        <Text style={styles.sidebarTitle}>Menu</Text>
-        <TouchableOpacity style={styles.sidebarItem}>
-          <IconSymbol name="person.fill" size={20} color="#333" />
-          <Text style={styles.sidebarItemText}>My Profile</Text>
+        <Text style={styles.menuTitle}>Training Room</Text>
+        <TouchableOpacity style={styles.menuItem}>
+          <Ionicons name="person-outline" size={22} color="#333" />
+          <Text style={styles.menuItemText}>Profile</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.sidebarItem}>
-          <IconSymbol name="gearshape.fill" size={20} color="#333" />
-          <Text style={styles.sidebarItemText}>Settings</Text>
+        <TouchableOpacity style={styles.menuItem}>
+          <Ionicons name="settings-outline" size={22} color="#333" />
+          <Text style={styles.menuItemText}>Settings</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.logoutItem}>
+        <TouchableOpacity style={styles.logoutButton}>
           <Text style={styles.logoutText}>Sign Out</Text>
         </TouchableOpacity>
       </Animated.View>
 
-      {/* MAIN CONTENT WRAPPER (This slides to the right) */}
+      {/* 2. MAIN CONTENT (Z-Index 2) */}
       <Animated.View 
         style={[
           styles.mainContent, 
           { transform: [{ translateX: contentTranslateX }] }
         ]}
       >
-        {/* Backdrop overlay when menu is open */}
-        {isSidebarOpen && (
-          <Animated.View style={[styles.backdrop, { opacity: backdropOpacity }]}>
-            <Pressable style={{ flex: 1 }} onPress={() => toggleSidebar(false)} />
+        {/* TINTED OVERLAY - Only blocks touches when menu is open */}
+        {isMenuOpen && (
+          <Animated.View style={[styles.overlay, { opacity: overlayOpacity }]}>
+            <Pressable style={{ flex: 1 }} onPress={toggleMenu} />
           </Animated.View>
         )}
 
         {/* HEADER */}
-        <View style={[styles.topBlock, { paddingTop: insets.top, height: 60 + insets.top }]}>
+        <View style={[styles.topBlock, { paddingTop: insets.top, height: 70 + insets.top }]}>
           <View style={styles.headerContent}>
-            <View style={styles.sideContainer}>
+            
+            {/* LEFT: Menu Button */}
+            <View style={styles.headerSide}>
               <TouchableOpacity 
-                onPress={() => toggleSidebar(true)} 
-                style={styles.menuButton}
-                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                style={styles.menuButton} 
+                onPress={toggleMenu}
+                hitSlop={{ top: 20, bottom: 20, left: 20, right: 20 }} // Makes it much easier to tap
               >
-                <IconSymbol name="line.3.horizontal" size={28} color="#FFF" />
+                <Ionicons name="menu" size={32} color="#FFFFFF" />
               </TouchableOpacity>
             </View>
 
-            <View style={styles.logoContainer}>
+            {/* CENTER: Logo (No longer absolute, so it can't block the button) */}
+            <View style={styles.headerCenter}>
               <Image 
                 source={require('../../../assets/training_room_logo2.png')} 
                 style={styles.logo}
                 resizeMode="contain"
               />
             </View>
-            <View style={styles.sideContainer} />
+
+            {/* RIGHT: Empty spacer */}
+            <View style={styles.headerSide} />
           </View>
         </View>
 
@@ -142,13 +144,13 @@ export default function HomeScreen() {
 
           <TouchableOpacity style={styles.onboardingButton} activeOpacity={0.8}>
             <View style={styles.buttonIconCircle}>
-              <IconSymbol name="phone.fill" size={20} color="#c62828" />
+              <Ionicons name="call" size={20} color="#c62828" />
             </View>
             <View style={styles.buttonTextContainer}>
               <Text style={styles.buttonTitle}>Book Onboarding Call</Text>
               <Text style={styles.buttonSubtitle}>Schedule your 1-on-1 session</Text>
             </View>
-            <IconSymbol name="chevron.right" size={20} color="#FFF" />
+            <Ionicons name="chevron-forward" size={20} color="#FFF" />
           </TouchableOpacity>
         </ScrollView>
       </Animated.View>
@@ -157,49 +159,51 @@ export default function HomeScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#000' }, // Set background to black for a cleaner transition
-  
-  // ANIMATED SIDEBAR
-  sidebar: { 
-    position: 'absolute', 
-    left: 0, 
-    top: 0, 
-    bottom: 0, 
-    width: SIDEBAR_WIDTH, 
-    backgroundColor: '#FFF', 
-    zIndex: 2, 
-    paddingHorizontal: 20 
-  },
-  sidebarTitle: { fontSize: 24, fontWeight: 'bold', marginBottom: 30, color: '#000' },
-  sidebarItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 15, borderBottomWidth: 1, borderBottomColor: '#EEE' },
-  sidebarItemText: { fontSize: 16, marginLeft: 15, color: '#333' },
-  logoutItem: { marginTop: 'auto', marginBottom: 40, paddingVertical: 15 },
-  logoutText: { color: '#c62828', fontWeight: 'bold', fontSize: 16 },
-
-  // MAIN CONTENT AREA
-  mainContent: {
-    flex: 1,
-    backgroundColor: '#F2F2F7',
+  container: { flex: 1, backgroundColor: '#000' },
+  sidebar: {
+    position: 'absolute',
+    left: 0, top: 0, bottom: 0,
+    width: SIDEBAR_WIDTH,
+    backgroundColor: '#FFF',
     zIndex: 1,
+    paddingHorizontal: 25,
   },
-  backdrop: { 
-    ...StyleSheet.absoluteFillObject, 
-    backgroundColor: 'rgba(0,0,0,0.3)', 
-    zIndex: 10 
-  },
+  menuTitle: { fontSize: 24, fontWeight: 'bold', marginBottom: 40 },
+  menuItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 15 },
+  menuItemText: { fontSize: 16, marginLeft: 15 },
+  logoutButton: { marginTop: 'auto', marginBottom: 50 },
+  logoutText: { color: '#c62828', fontSize: 16, fontWeight: 'bold' },
 
-  // HEADER
+  mainContent: { flex: 1, backgroundColor: '#F2F2F7', zIndex: 2 },
+  overlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.4)', zIndex: 99 },
+  
   topBlock: {
     backgroundColor: '#000',
     paddingHorizontal: 15,
     borderBottomLeftRadius: 25,
     borderBottomRightRadius: 25,
   },
-  headerContent: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  sideContainer: { width: 60, justifyContent: 'center' },
-  menuButton: { width: 44, height: 44, justifyContent: 'center' },
-  logoContainer: { position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, alignItems: 'center', justifyContent: 'center' },
-  logo: { width: 110, height: 110, marginTop: 5 },
+  headerContent: { 
+    flex: 1,
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    justifyContent: 'space-between',
+  },
+  headerSide: {
+    width: 50, // Reserves specific space on left and right
+  },
+  headerCenter: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  menuButton: {
+    width: 44,
+    height: 44,
+    justifyContent: 'center',
+    alignItems: 'flex-start',
+  },
+  logo: { width: 110, height: 110, marginTop: 10 },
   
   scrollContent: { paddingHorizontal: 20, paddingTop: 15, alignItems: 'center' },
   calendarCard: {
@@ -221,7 +225,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: 20,
     borderRadius: 20,
-    elevation: 6,
   },
   buttonIconCircle: { width: 45, height: 45, backgroundColor: '#FFF', borderRadius: 22.5, justifyContent: 'center', alignItems: 'center' },
   buttonTextContainer: { flex: 1, marginLeft: 15 },
