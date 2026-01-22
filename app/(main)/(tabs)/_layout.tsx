@@ -2,7 +2,7 @@ import { auth, db } from '@/fireBaseConfig';
 import { Ionicons } from '@expo/vector-icons';
 import { Tabs } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { doc, getDoc } from 'firebase/firestore';
+import { doc, onSnapshot } from 'firebase/firestore'; // Changed getDoc to onSnapshot for real-time updates
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import {
   Animated,
@@ -21,8 +21,8 @@ const { width } = Dimensions.get('window');
 const SIDEBAR_WIDTH = width * 0.75;
 const APP_VERSION = "v1.0.4";
 
-// --- USER CONTEXT ---
-const UserContext = createContext({ fullName: '', handle: '', memberSince: '' });
+// --- 1. UPDATE CONTEXT (Added profileImage) ---
+const UserContext = createContext({ fullName: '', handle: '', memberSince: '', profileImage: '' });
 export const useUser = () => useContext(UserContext);
 
 export default function TabLayout() {
@@ -33,36 +33,30 @@ export default function TabLayout() {
   const [fullName, setFullName] = useState('Athlete');
   const [handle, setHandle] = useState('athlete');
   const [memberSince, setMemberSince] = useState('');
+  const [profileImage, setProfileImage] = useState(''); // Added State for Image
 
-  // Fetch User Data for Sidebar and Context
+  // --- 2. UPDATED FETCH LOGIC (Real-time listener) ---
   useEffect(() => {
-    const fetchUserData = async () => {
-      const user = auth.currentUser;
-      if (user) {
-        try {
-          const docRef = doc(db, "customers", user.uid);
-          const docSnap = await getDoc(docRef);
-          if (docSnap.exists()) {
-            const data = docSnap.data();
-            setFullName(data.name);
-            setHandle(data.name.replace(/\s+/g, '_').toLowerCase());
-            
-            // Format the Firestore timestamp to "Month Year"
-            if (data.createdAt) {
-              const date = data.createdAt.toDate();
-              const formatted = date.toLocaleDateString('en-US', {
-                month: 'long',
-                year: 'numeric',
-              });
-              setMemberSince(formatted);
-            }
-          }
-        } catch (error) {
-          console.error("Error fetching user data:", error);
+    const user = auth.currentUser;
+    if (!user) return;
+
+    // We use onSnapshot so if you upload a photo on the Profile page, 
+    // the Sidebar updates INSTANTLY without a refresh.
+    const unsub = onSnapshot(doc(db, "customers", user.uid), (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        setFullName(data.name || 'Athlete');
+        setHandle((data.name || 'athlete').replace(/\s+/g, '_').toLowerCase());
+        setProfileImage(data.profileImage || ''); // Grab the image URL
+        
+        if (data.createdAt) {
+          const date = data.createdAt.toDate();
+          setMemberSince(date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }));
         }
       }
-    };
-    fetchUserData();
+    });
+
+    return () => unsub(); // Cleanup listener on unmount
   }, []);
 
   const toggleMenu = () => {
@@ -92,19 +86,30 @@ export default function TabLayout() {
   });
 
   return (
-    <UserContext.Provider value={{ fullName, handle, memberSince }}>
+    // Pass profileImage into the Provider
+    <UserContext.Provider value={{ fullName, handle, memberSince, profileImage }}>
       <View style={styles.container}>
         <StatusBar style="light" />
 
         {/* --- PERSISTENT SIDEBAR --- */}
         <Animated.View style={[styles.sidebar, { paddingTop: insets.top + 20, transform: [{ translateX: sidebarTranslateX }] }]}>
           <View style={styles.sidebarHeader}>
-            <View style={styles.avatarCircle}><Ionicons name="person" size={35} color="#666" /></View>
+            
+            {/* --- 3. UPDATED SIDEBAR AVATAR --- */}
+            <View style={styles.avatarCircle}>
+              {profileImage ? (
+                <Image source={{ uri: profileImage }} style={styles.sidebarPhoto} />
+              ) : (
+                <Ionicons name="person" size={35} color="#666" />
+              )}
+            </View>
+
             <View style={styles.sidebarUserInfo}>
               <Text style={styles.sidebarUserName}>{fullName}</Text>
               <Text style={styles.sidebarHandle}>@{handle}</Text>
             </View>
           </View>
+          
           <View style={styles.sidebarMenuSection}>
             <TouchableOpacity style={styles.sidebarItem}>
               <Ionicons name="settings-outline" size={22} color="#333" />
@@ -115,12 +120,12 @@ export default function TabLayout() {
               <Text style={styles.logoutText}>Sign Out</Text>
             </TouchableOpacity>
           </View>
+          
           <View style={[styles.sidebarFooter, { paddingBottom: insets.bottom + 20 }]}>
             <Text style={styles.versionText}>{APP_VERSION}</Text>
           </View>
         </Animated.View>
 
-        {/* --- MAIN ANIMATED FRAME --- */}
         <Animated.View style={[styles.mainWrapper, { transform: [{ translateX: contentTranslateX }] }]}>
           {isMenuOpen && (
             <Animated.View style={[styles.overlay, { opacity: overlayOpacity }]}>
@@ -128,7 +133,6 @@ export default function TabLayout() {
             </Animated.View>
           )}
 
-          {/* --- PERSISTENT HEADER --- */}
           <View style={[styles.topBlock, { paddingTop: insets.top, height: 70 + insets.top }]}>
             <View style={styles.headerContent}>
               <View style={styles.headerSide}>
@@ -170,7 +174,8 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#000' },
   sidebar: { position: 'absolute', left: 0, top: 0, bottom: 0, width: SIDEBAR_WIDTH, backgroundColor: '#FFF', zIndex: 1, paddingHorizontal: 20 },
   sidebarHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 40, marginTop: 10 },
-  avatarCircle: { width: 60, height: 60, borderRadius: 30, backgroundColor: '#F2F2F7', justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: '#E5E5E5' },
+  avatarCircle: { width: 60, height: 60, borderRadius: 30, backgroundColor: '#F2F2F7', justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: '#E5E5E5', overflow: 'hidden' },
+  sidebarPhoto: { width: 60, height: 60, borderRadius: 30 },
   sidebarUserInfo: { marginLeft: 15 },
   sidebarUserName: { fontSize: 18, fontWeight: 'bold' },
   sidebarHandle: { fontSize: 14, color: '#888' },
@@ -179,7 +184,7 @@ const styles = StyleSheet.create({
   sidebarItemText: { fontSize: 16, marginLeft: 15, fontWeight: '500' },
   logoutButton: { flexDirection: 'row', alignItems: 'center', paddingVertical: 15 },
   logoutText: { color: '#c62828', fontSize: 16, fontWeight: 'bold', marginLeft: 15 },
-  sidebarFooter: { alignItems: 'center', width: '100%' },
+  sidebarFooter: { alignItems: 'center' },
   versionText: { color: '#CCC', fontSize: 12, fontWeight: '600' },
   mainWrapper: { flex: 1, backgroundColor: '#F2F2F7', zIndex: 2 },
   overlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.4)', zIndex: 999 },
