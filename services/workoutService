@@ -1,0 +1,41 @@
+import {
+  arrayUnion,
+  doc,
+  getDoc,
+  setDoc,
+  updateDoc
+} from "firebase/firestore";
+import { db } from '../fireBaseConfig';
+
+export interface Exercise {
+  id: string;
+  name: string;
+  sets: string;
+  reps: string;
+  weight?: string;
+}
+
+// Save a new exercise to a specific date
+export const addExerciseToDate = async (userId: string, dateString: string, exercise: Exercise) => {
+  const docRef = doc(db, "customers", userId, "workouts", dateString);
+  
+  try {
+    const docSnap = await getDoc(docRef);
+    if (docSnap.exists()) {
+      // If the day already exists, add the new exercise to the array
+      await updateDoc(docRef, {
+        exercises: arrayUnion(exercise)
+      });
+    } else {
+      // If it's the first exercise for that day, create the document
+      await setDoc(docRef, {
+        exercises: [exercise],
+        date: dateString
+      });
+    }
+    return { success: true };
+  } catch (error) {
+    console.error("Error adding exercise:", error);
+    return { success: false, error };
+  }
+};
