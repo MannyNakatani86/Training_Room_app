@@ -1,6 +1,7 @@
 import { auth, db } from '@/fireBaseConfig';
-import { addExerciseToDate, Exercise } from '@/services/workoutService';
+import { addExerciseToDate, deleteExerciseFromDate, Exercise, updateExerciseInDate } from '@/services/workoutService';
 import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
 import { doc, onSnapshot } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
 import {
@@ -16,127 +17,177 @@ export default function WorkoutsScreen() {
   const [isExpanded, setIsExpanded] = useState(false);
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [exercises, setExercises] = useState<Exercise[]>([]);
-  
+  const [weekDates, setWeekDates] = useState<Date[]>([]);
+
   // Modal State
   const [modalVisible, setModalVisible] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [newExName, setNewExName] = useState('');
   const [newSets, setNewSets] = useState('');
   const [newReps, setNewReps] = useState('');
 
-  const selectedStr = selectedDate.toISOString().split('T')[0];
+  // Date Utilities
+  const getFormattedStr = (date: Date) => {
+    const offset = date.getTimezoneOffset();
+    const adjustedDate = new Date(date.getTime() - (offset * 60 * 1000));
+    return adjustedDate.toISOString().split('T')[0];
+  };
 
-  // REAL-TIME LISTENER: Fetch exercises whenever the date changes
+  const selectedStr = getFormattedStr(selectedDate);
+  const todayStr = getFormattedStr(new Date());
+  const router = useRouter();
+
+  useEffect(() => {
+    const startOfWeek = new Date(selectedDate);
+    startOfWeek.setDate(selectedDate.getDate() - selectedDate.getDay());
+    setWeekDates(Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(startOfWeek);
+      d.setDate(startOfWeek.getDate() + i);
+      return d;
+    }));
+  }, [selectedDate]);
+
   useEffect(() => {
     const user = auth.currentUser;
     if (!user) return;
-
     const unsub = onSnapshot(doc(db, "customers", user.uid, "workouts", selectedStr), (docSnap) => {
-      if (docSnap.exists()) {
-        setExercises(docSnap.data().exercises || []);
-      } else {
-        setExercises([]); // Reset to empty if no data for this day
-      }
+      setExercises(docSnap.exists() ? docSnap.data().exercises || [] : []);
     });
     return () => unsub();
   }, [selectedStr]);
 
-  const handleAddExercise = async () => {
-    if (!newExName || !newSets || !newReps) {
-      Alert.alert("Error", "Please fill in all fields");
-      return;
-    }
-
+  const handleSave = async () => {
+    if (!newExName || !newSets || !newReps) return Alert.alert("Error", "Fill all fields");
     const user = auth.currentUser;
-    if (user) {
-      const newEx: Exercise = {
-        id: Date.now().toString(),
-        name: newExName,
-        sets: newSets,
-        reps: newReps
-      };
-      const res = await addExerciseToDate(user.uid, selectedStr, newEx);
-      if (res.success) {
-        setModalVisible(false);
-        setNewExName(''); setNewSets(''); setNewReps('');
-      }
-    }
+    if (!user) return;
+
+    const data: Exercise = { id: editingId || Date.now().toString(), name: newExName, sets: newSets, reps: newReps };
+    const res = editingId 
+      ? await updateExerciseInDate(user.uid, selectedStr, data)
+      : await addExerciseToDate(user.uid, selectedStr, data);
+
+    if (res.success) closeModal();
+  };
+
+  const confirmDelete = (id: string) => {
+    Alert.alert("Delete", "Remove this exercise?", [
+      { text: "Cancel", style: "cancel" },
+      { text: "Delete", style: "destructive", onPress: async () => {
+        const user = auth.currentUser;
+        if (user) await deleteExerciseFromDate(user.uid, selectedStr, id);
+      }}
+    ]);
+  };
+
+  const openEditModal = (ex: Exercise) => {
+    setEditingId(ex.id);
+    setNewExName(ex.name);
+    setNewSets(ex.sets);
+    setNewReps(ex.reps);
+    setModalVisible(true);
+  };
+
+  const closeModal = () => {
+    setModalVisible(false);
+    setEditingId(null);
+    setNewExName(''); setNewSets(''); setNewReps('');
   };
 
   return (
     <View style={styles.container}>
       <ScrollView showsVerticalScrollIndicator={false}>
-        {/* CALENDAR HEADER (Canvas Style) */}
-        <View style={styles.calendarHeaderCard}>
-          <TouchableOpacity style={styles.monthSelector} onPress={() => {
+        <View style={styles.calendarCard}>
+          <TouchableOpacity style={styles.monthToggle} onPress={() => {
             LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
             setIsExpanded(!isExpanded);
           }}>
-            <Text style={styles.monthText}>{selectedDate.toLocaleString('default', { month: 'long', year: 'numeric' })}</Text>
-            <Ionicons name={isExpanded ? "chevron-up" : "chevron-down"} size={20} color="#444" />
+            <Text style={styles.monthLabel}>{selectedDate.toLocaleString('default', { month: 'long', year: 'numeric' })}</Text>
+            <Ionicons name={isExpanded ? "chevron-up" : "chevron-down"} size={18} color="#000" />
           </TouchableOpacity>
 
-          {isExpanded && (
+          {isExpanded ? (
             <Calendar
               current={selectedStr}
-              onDayPress={day => setSelectedDate(new Date(day.dateString))}
-              theme={{ todayTextColor: '#0078d4', selectedDayBackgroundColor: '#0078d4' } as any}
+              onDayPress={day => {
+                const [y, m, d] = day.dateString.split('-').map(Number);
+                setSelectedDate(new Date(y, m - 1, d));
+              }}
+              theme={{ todayTextColor: '#c62828', selectedDayBackgroundColor: '#c62828' } as any}
             />
+          ) : (
+            <View style={styles.weekStrip}>
+              {weekDates.map((date, i) => {
+                const dateStr = getFormattedStr(date);
+                const isSelected = dateStr === selectedStr;
+                return (
+                  <TouchableOpacity key={i} style={styles.dayCol} onPress={() => setSelectedDate(date)}>
+                    <Text style={styles.dayLabel}>{date.toLocaleString('default', { weekday: 'short' }).charAt(0)}</Text>
+                    <Text style={[styles.dateText, isSelected && styles.selectedDateText]}>{date.getDate()}</Text>
+                    {dateStr === todayStr && !isSelected && <View style={styles.todayDot} />}
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
           )}
         </View>
 
-        {/* WORKOUT LIST */}
         <View style={styles.previewSection}>
-          <Text style={styles.sectionHeader}>Workout for {selectedDate.toDateString()}</Text>
+          <Text style={styles.sectionHeader}>{selectedStr === todayStr ? "Today's Workout" : `Workout for ${selectedDate.toDateString()}`}</Text>
           
           {exercises.length === 0 ? (
-            <View style={styles.emptyContainer}>
-              <Ionicons name="barbell-outline" size={50} color="#DDD" />
-              <Text style={styles.emptyText}>No exercises added for today.</Text>
-              <Text style={styles.emptySubText}>Tap the + button to build your routine.</Text>
-            </View>
+            <View style={styles.emptyContainer}><Text style={styles.emptyText}>No exercises planned.</Text></View>
           ) : (
             exercises.map((item) => (
               <View key={item.id} style={styles.exerciseRow}>
-                <Ionicons name="checkmark-circle-outline" size={20} color="#0078d4" />
+                <Ionicons name="checkmark-circle" size={22} color="#c62828" />
                 <View style={styles.exerciseInfo}>
                   <Text style={styles.exerciseName}>{item.name}</Text>
                   <Text style={styles.exerciseMeta}>{item.sets} Sets • {item.reps} Reps</Text>
+                </View>
+                <View style={styles.actionRow}>
+                  <TouchableOpacity onPress={() => openEditModal(item)} style={styles.actionBtn}><Ionicons name="pencil" size={18} color="#007AFF" /></TouchableOpacity>
+                  <TouchableOpacity onPress={() => confirmDelete(item.id)} style={styles.actionBtn}><Ionicons name="trash" size={18} color="#FF3B30" /></TouchableOpacity>
                 </View>
               </View>
             ))
           )}
         </View>
-        <View style={{ height: 150 }} />
+        <View style={{ height: 200 }} />
       </ScrollView>
 
-      {/* FLOATING ACTION BUTTON (+) */}
-      <TouchableOpacity style={styles.fab} onPress={() => setModalVisible(true)}>
-        <Ionicons name="add" size={32} color="white" />
-      </TouchableOpacity>
+      {/* COMPACT FOOTER ACTIONS */}
+      <View style={[styles.footer, { paddingBottom: insets.bottom + 15 }]}>
+        
+        {/* SMALLER ADD EXERCISE BUTTON */}
+        <TouchableOpacity style={styles.addExButton} onPress={() => setModalVisible(true)}>
+          <View style={styles.smallIconCircle}>
+            <Ionicons name="add" size={20} color="#c62828" />
+          </View>
+          <Text style={styles.addExTitle}>Add Exercise</Text>
+          <Ionicons name="chevron-forward" size={16} color="#FFF" style={{ marginLeft: 'auto' }} />
+        </TouchableOpacity>
 
-      {/* START LIFTING BUTTON */}
-      {exercises.length > 0 && (
-        <View style={[styles.footer, { paddingBottom: insets.bottom + 20 }]}>
-          <TouchableOpacity style={styles.startButton}>
-            <Text style={styles.startButtonText}>Start Lifting</Text>
+        {/* START LIFTING (Only shows if exercises exist) */}
+        {exercises.length > 0 && (
+          <TouchableOpacity style={styles.startLiftingButton}
+            onPress={() => router.push('/(main)/active-workout')}>
+            <Text style={styles.startLiftingText}>Start Lifting</Text>
           </TouchableOpacity>
-        </View>
-      )}
+        )}
+      </View>
 
-      {/* ADD EXERCISE MODAL */}
+      {/* MODAL */}
       <Modal visible={modalVisible} animationType="slide" transparent={true}>
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Add Exercise</Text>
-            <TextInput style={styles.input} placeholder="Exercise Name (e.g. Bench Press)" value={newExName} onChangeText={setNewExName} />
+            <Text style={styles.modalTitle}>{editingId ? "Edit Exercise" : "Add Exercise"}</Text>
+            <TextInput style={styles.input} placeholder="Exercise Name" value={newExName} onChangeText={setNewExName} />
             <View style={{ flexDirection: 'row', gap: 10 }}>
               <TextInput style={[styles.input, { flex: 1 }]} placeholder="Sets" keyboardType="numeric" value={newSets} onChangeText={setNewSets} />
               <TextInput style={[styles.input, { flex: 1 }]} placeholder="Reps" keyboardType="numeric" value={newReps} onChangeText={setNewReps} />
             </View>
-            <View style={styles.modalButtons}>
-              <TouchableOpacity onPress={() => setModalVisible(false)}><Text style={{ color: '#666' }}>Cancel</Text></TouchableOpacity>
-              <TouchableOpacity onPress={handleAddExercise} style={styles.saveBtn}><Text style={{ color: '#FFF', fontWeight: 'bold' }}>Save</Text></TouchableOpacity>
-            </View>
+            <TouchableOpacity onPress={handleSave} style={styles.saveBtn}><Text style={styles.saveBtnText}>Save</Text></TouchableOpacity>
+            <TouchableOpacity onPress={closeModal} style={styles.cancelBtn}><Text>Cancel</Text></TouchableOpacity>
           </View>
         </View>
       </Modal>
@@ -145,34 +196,62 @@ export default function WorkoutsScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#fff' },
-  calendarHeaderCard: { padding: 16, borderBottomWidth: 1, borderBottomColor: '#eee' },
-  monthSelector: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
-  monthText: { fontSize: 18, fontWeight: '600', marginRight: 5 },
+  container: { flex: 1, backgroundColor: '#F2F2F7' },
+  calendarCard: { backgroundColor: '#FFF', paddingVertical: 20, paddingHorizontal: 15, borderBottomLeftRadius: 25, borderBottomRightRadius: 25, elevation: 3 },
+  monthToggle: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginBottom: 20 },
+  monthLabel: { fontSize: 17, fontWeight: '700', marginRight: 5 },
+  weekStrip: { flexDirection: 'row', justifyContent: 'space-around' },
+  dayCol: { alignItems: 'center', width: 40 },
+  dayLabel: { fontSize: 12, color: '#888', marginBottom: 10 },
+  dateText: { fontSize: 16, fontWeight: '500' },
+  selectedDateText: { color: '#c62828', fontWeight: 'bold' },
+  todayDot: { width: 4, height: 4, borderRadius: 2, backgroundColor: '#c62828', marginTop: 4 },
   previewSection: { padding: 20 },
   sectionHeader: { fontSize: 13, fontWeight: '700', color: '#888', textTransform: 'uppercase', marginBottom: 20 },
-  
-  // List Styles
-  exerciseRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 15, borderBottomWidth: 0.5, borderBottomColor: '#eee' },
-  exerciseInfo: { marginLeft: 15 },
-  exerciseName: { fontSize: 16, fontWeight: '500', color: '#333' },
-  exerciseMeta: { fontSize: 14, color: '#666', marginTop: 2 },
-  
-  // Empty State
+  exerciseRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFF', padding: 15, borderRadius: 15, marginBottom: 10 },
+  exerciseInfo: { marginLeft: 15, flex: 1 },
+  exerciseName: { fontSize: 16, fontWeight: 'bold' },
+  exerciseMeta: { fontSize: 14, color: '#666' },
+  actionRow: { flexDirection: 'row', gap: 10 },
+  actionBtn: { padding: 5 },
   emptyContainer: { alignItems: 'center', marginTop: 40 },
-  emptyText: { fontSize: 16, color: '#999', marginTop: 10, fontWeight: '600' },
-  emptySubText: { fontSize: 14, color: '#BBB', marginTop: 5 },
+  emptyText: { color: '#AAA' },
+  
+  // Footer styles
+  footer: { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: 'rgba(242,242,247,0.95)', paddingHorizontal: 20, paddingTop: 10, gap: 10 },
+  addExButton: { 
+    backgroundColor: '#c62828', 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    padding: 12, // Reduced padding from 20
+    borderRadius: 15, // Slightly tighter radius
+  },
+  smallIconCircle: { 
+    width: 32, 
+    height: 32, 
+    backgroundColor: '#FFF', 
+    borderRadius: 16, 
+    justifyContent: 'center', 
+    alignItems: 'center',
+    marginRight: 12
+  },
+  addExTitle: { color: '#FFF', fontSize: 16, fontWeight: 'bold' },
+  
+  startLiftingButton: {
+    backgroundColor: '#000',
+    height: 48,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  startLiftingText: { color: '#FFF', fontWeight: 'bold' },
 
-  fab: { position: 'absolute', bottom: 100, right: 20, backgroundColor: '#0078d4', width: 60, height: 60, borderRadius: 30, justifyContent: 'center', alignItems: 'center', elevation: 5 },
-  footer: { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: '#FFF', padding: 20, borderTopWidth: 1, borderTopColor: '#eee' },
-  startButton: { backgroundColor: '#0078d4', height: 50, borderRadius: 25, justifyContent: 'center', alignItems: 'center' },
-  startButtonText: { color: '#FFF', fontSize: 16, fontWeight: 'bold' },
-
-  // Modal Styles
+  // Modal styles
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: 20 },
-  modalContent: { backgroundColor: '#FFF', borderRadius: 20, padding: 20 },
+  modalContent: { backgroundColor: '#FFF', borderRadius: 20, padding: 25 },
   modalTitle: { fontSize: 20, fontWeight: 'bold', marginBottom: 20 },
-  input: { backgroundColor: '#F2F2F7', padding: 15, borderRadius: 10, marginBottom: 15 },
-  modalButtons: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 10 },
-  saveBtn: { backgroundColor: '#0078d4', paddingHorizontal: 30, paddingVertical: 12, borderRadius: 10 }
+  input: { backgroundColor: '#F2F2F7', padding: 15, borderRadius: 12, marginBottom: 15 },
+  saveBtn: { backgroundColor: '#c62828', padding: 18, borderRadius: 12, alignItems: 'center' },
+  saveBtnText: { color: '#FFF', fontWeight: 'bold', fontSize: 16 },
+  cancelBtn: { alignItems: 'center', marginTop: 15 }
 });

@@ -1,7 +1,9 @@
 import OnboardingModal from '@/components/OnboardingModal';
 import { auth, db } from '@/fireBaseConfig';
+import { Exercise } from '@/services/workoutService';
 import { Ionicons } from '@expo/vector-icons';
-import { doc, getDoc } from 'firebase/firestore';
+import { useRouter } from 'expo-router';
+import { doc, onSnapshot } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
 import {
   Dimensions,
@@ -14,76 +16,120 @@ import {
   TouchableOpacity,
   View
 } from 'react-native';
+import { useUser } from './_layout';
 
 const { width } = Dimensions.get('window');
-const CARD_WIDTH = width - 40; // Full width minus horizontal padding
+const router = useRouter();
 
 export default function HomeScreen() {
-  const [firstName, setFirstName] = useState('Athlete');
+  const { fullName } = useUser();
   const [isModalVisible, setIsModalVisible] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
+  const [workouts, setWorkouts] = useState<Record<string, Exercise[]>>({});
 
-  // Generate a list of the next 7 days for the swipeable section
+  const getFormattedStr = (date: Date) => {
+    const offset = date.getTimezoneOffset();
+    const adjustedDate = new Date(date.getTime() - (offset * 60 * 1000));
+    return adjustedDate.toISOString().split('T')[0];
+  };
+
   const workoutDays = Array.from({ length: 7 }).map((_, i) => {
     const date = new Date();
     date.setDate(date.getDate() + i);
+    const dateStr = getFormattedStr(date);
     return {
       id: i.toString(),
+      dateStr: dateStr,
       dateLabel: i === 0 ? "TODAY" : i === 1 ? "TOMORROW" : date.toLocaleDateString('en-US', { weekday: 'long' }).toUpperCase(),
       fullDate: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
     };
   });
 
   useEffect(() => {
-    const fetchName = async () => {
-      const user = auth.currentUser;
-      if (user) {
-        const docSnap = await getDoc(doc(db, "customers", user.uid));
+    const user = auth.currentUser;
+    if (!user) return;
+
+    const unsubs = workoutDays.map((day) => {
+      return onSnapshot(doc(db, "customers", user.uid, "workouts", day.dateStr), (docSnap) => {
         if (docSnap.exists()) {
-          setFirstName(docSnap.data().name.split(' ')[0]);
+          setWorkouts(prev => ({
+            ...prev,
+            [day.dateStr]: docSnap.data().exercises || []
+          }));
+        } else {
+          setWorkouts(prev => ({ ...prev, [day.dateStr]: [] }));
         }
-      }
-    };
-    fetchName();
+      });
+    });
+
+    return () => unsubs.forEach(unsub => unsub());
   }, []);
 
-  // Update dots based on scroll position
   const handleScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
     const scrollPosition = event.nativeEvent.contentOffset.x;
     const index = Math.round(scrollPosition / width);
     setActiveIndex(index);
   };
 
-  const renderWorkoutCard = ({ item }: { item: typeof workoutDays[0] }) => (
-    <View style={styles.cardContainer}>
-      <View style={styles.sectionHeader}>
-        <Text style={styles.sectionTitleText}>{item.dateLabel} • {item.fullDate}</Text>
-      </View>
-      <View style={styles.workoutPlaceholderCard}>
-        <View style={styles.iconCircle}>
-          <Ionicons name="barbell-outline" size={32} color="#AAA" />
+  const renderWorkoutCard = ({ item }: { item: typeof workoutDays[0] }) => {
+    const dayExercises = workouts[item.dateStr] || [];
+    const previewList = dayExercises.slice(0, 3); // Preview only up to 3
+    const hasMore = dayExercises.length > 3;
+
+    return (
+      <View style={styles.cardContainer}>
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitleText}>{item.dateLabel} • {item.fullDate}</Text>
         </View>
-        <Text style={styles.noWorkoutText}>No workout for the day</Text>
-        <TouchableOpacity style={styles.planButton}>
-          <Text style={styles.planButtonText}>Plan Session</Text>
-        </TouchableOpacity>
+
+        <View style={styles.workoutCardFixed}>
+          {dayExercises.length > 0 ? (
+            <View style={styles.contentWrapper}>
+              <View style={styles.exercisePreviewArea}>
+                {previewList.map((ex, index) => (
+                  <View key={index} style={styles.miniExerciseRow}>
+                    <View style={styles.redDot} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.miniExName} numberOfLines={1}>{ex.name}</Text>
+                      <Text style={styles.miniExMeta}>{ex.sets} Sets • {ex.reps} Reps</Text>
+                    </View>
+                  </View>
+                ))}
+                {hasMore && (
+                  <Text style={styles.moreIndicator}>+ {dayExercises.length - 3} more exercises</Text>
+                )}
+              </View>
+
+              <TouchableOpacity style={styles.startWorkoutBtn}
+                onPress={() => router.push('/(main)/active-workout')}>
+                <Text style={styles.startWorkoutBtnText}>Start Workout</Text>
+                <Ionicons name="play" size={16} color="#FFF" />
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <View style={styles.emptyContent}>
+              <View style={styles.iconCircle}>
+                <Ionicons name="barbell-outline" size={32} color="#AAA" />
+              </View>
+              <Text style={styles.noWorkoutText}>No workout planned</Text>
+              <TouchableOpacity style={styles.planButton}>
+                <Text style={styles.planButtonText}>Plan Session</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+        </View>
       </View>
-    </View>
-  );
+    );
+  };
 
   return (
-    <View style={{ flex: 1 }}>
-      <ScrollView 
-        contentContainerStyle={styles.scrollContent} 
-        showsVerticalScrollIndicator={false}
-      >
-        {/* 1. GREETING */}
+    <View style={{ flex: 1, backgroundColor: '#F2F2F7' }}>
+      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         <View style={styles.greetingContainer}>
-          <Text style={styles.welcomeText}>Hi {firstName},</Text>
+          <Text style={styles.welcomeText}>Hi {fullName.split(' ')[0]},</Text>
           <Text style={styles.subtitleText}>Consistency is the key to progress.</Text>
         </View>
 
-        {/* 2. SWIPEABLE WORKOUT SECTION */}
         <FlatList
           data={workoutDays}
           renderItem={renderWorkoutCard}
@@ -97,20 +143,12 @@ export default function HomeScreen() {
           keyExtractor={(item) => item.id}
         />
 
-        {/* 3. PAGINATION DOTS */}
         <View style={styles.paginationDots}>
           {workoutDays.map((_, i) => (
-            <View 
-              key={i} 
-              style={[
-                styles.dot, 
-                activeIndex === i ? styles.activeDot : styles.inactiveDot
-              ]} 
-            />
+            <View key={i} style={[styles.dot, activeIndex === i ? styles.activeDot : styles.inactiveDot]} />
           ))}
         </View>
 
-        {/* 4. ONBOARDING CALL BUTTON */}
         <TouchableOpacity 
           style={styles.onboardingButton} 
           onPress={() => setIsModalVisible(true)}
@@ -127,93 +165,72 @@ export default function HomeScreen() {
         </TouchableOpacity>
       </ScrollView>
 
-      <OnboardingModal 
-        isVisible={isModalVisible} 
-        onClose={() => setIsModalVisible(false)} 
-      />
+      <OnboardingModal isVisible={isModalVisible} onClose={() => setIsModalVisible(false)} />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  scrollContent: { 
-    paddingTop: 25, 
-    paddingBottom: 40 
-  },
-  greetingContainer: { 
-    paddingHorizontal: 20,
-    marginBottom: 20 
-  },
+  scrollContent: { paddingTop: 25, paddingBottom: 40 },
+  greetingContainer: { paddingHorizontal: 20, marginBottom: 20 },
   welcomeText: { fontSize: 28, fontWeight: '900', color: '#000' },
   subtitleText: { fontSize: 15, color: '#666', marginTop: 5 },
   
-  cardContainer: {
-    width: width,
-    paddingHorizontal: 20,
-  },
-  sectionHeader: {
-    marginBottom: 12,
-  },
-  sectionTitleText: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#8e8e93',
-    letterSpacing: 1,
-  },
-  workoutPlaceholderCard: {
+  cardContainer: { width: width, paddingHorizontal: 20 },
+  sectionHeader: { marginBottom: 12 },
+  sectionTitleText: { fontSize: 13, fontWeight: '700', color: '#8e8e93', letterSpacing: 1 },
+  
+  workoutCardFixed: {
     backgroundColor: '#FFF',
     borderRadius: 25,
-    paddingVertical: 40,
-    paddingHorizontal: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
+    height: 280, // FIXED HEIGHT
+    padding: 20,
     shadowColor: '#000',
     shadowOpacity: 0.05,
     shadowRadius: 10,
     elevation: 3,
+    justifyContent: 'center', // Centers empty state
   },
-  iconCircle: {
-    width: 70,
-    height: 70,
-    borderRadius: 35,
-    backgroundColor: '#F2F2F7',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 15,
-  },
-  noWorkoutText: { fontSize: 16, color: '#999', fontWeight: '500', marginBottom: 20 },
-  planButton: { backgroundColor: '#000', paddingVertical: 10, paddingHorizontal: 20, borderRadius: 12 },
-  planButtonText: { color: '#FFF', fontWeight: 'bold', fontSize: 14 },
+  
+  contentWrapper: { flex: 1, justifyContent: 'space-between' },
+  exercisePreviewArea: { flex: 1 },
+  
+  miniExerciseRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 15 },
+  redDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#c62828', marginRight: 12 },
+  miniExName: { fontSize: 16, fontWeight: '600', color: '#000' },
+  miniExMeta: { fontSize: 13, color: '#888', marginTop: 2 },
+  moreIndicator: { fontSize: 12, color: '#AAA', marginLeft: 18, fontStyle: 'italic' },
 
-  paginationDots: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginTop: 15,
-    marginBottom: 30,
-  },
-  dot: {
-    height: 8,
-    borderRadius: 4,
-    marginHorizontal: 4,
-  },
-  activeDot: {
-    width: 20,
-    backgroundColor: '#c62828',
-  },
-  inactiveDot: {
-    width: 8,
-    backgroundColor: '#DDD',
-  },
-
-  onboardingButton: { 
-    marginHorizontal: 20,
-    backgroundColor: '#c62828', 
+  startWorkoutBtn: { 
+    backgroundColor: '#000', 
     flexDirection: 'row', 
     alignItems: 'center', 
-    padding: 20, 
-    borderRadius: 25,
-    elevation: 5,
+    justifyContent: 'center', 
+    paddingVertical: 14, 
+    borderRadius: 15,
+    gap: 8
+  },
+  startWorkoutBtnText: { color: '#FFF', fontWeight: 'bold', fontSize: 15 },
+
+  emptyContent: { alignItems: 'center' },
+  iconCircle: {
+    width: 60, height: 60, borderRadius: 30,
+    backgroundColor: '#F2F2F7', alignItems: 'center',
+    justifyContent: 'center', marginBottom: 12,
+  },
+  noWorkoutText: { fontSize: 16, color: '#999', fontWeight: '500', marginBottom: 15 },
+  planButton: { backgroundColor: '#F2F2F7', paddingVertical: 10, paddingHorizontal: 20, borderRadius: 12 },
+  planButtonText: { color: '#000', fontWeight: 'bold', fontSize: 14 },
+
+  paginationDots: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', marginTop: 15, marginBottom: 30 },
+  dot: { height: 8, borderRadius: 4, marginHorizontal: 4 },
+  activeDot: { width: 20, backgroundColor: '#c62828' },
+  inactiveDot: { width: 8, backgroundColor: '#DDD' },
+
+  onboardingButton: { 
+    marginHorizontal: 20, backgroundColor: '#c62828', 
+    flexDirection: 'row', alignItems: 'center', 
+    padding: 20, borderRadius: 25, elevation: 5,
   },
   buttonIconCircle: { width: 45, height: 45, backgroundColor: '#FFF', borderRadius: 22.5, justifyContent: 'center', alignItems: 'center' },
   buttonTextContainer: { flex: 1, marginLeft: 15 },

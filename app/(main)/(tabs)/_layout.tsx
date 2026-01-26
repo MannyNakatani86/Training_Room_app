@@ -2,7 +2,7 @@ import { auth, db } from '@/fireBaseConfig';
 import { Ionicons } from '@expo/vector-icons';
 import { Tabs } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { doc, onSnapshot } from 'firebase/firestore'; // Changed getDoc to onSnapshot for real-time updates
+import { doc, onSnapshot } from 'firebase/firestore';
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import {
   Animated,
@@ -21,42 +21,35 @@ const { width } = Dimensions.get('window');
 const SIDEBAR_WIDTH = width * 0.75;
 const APP_VERSION = "v1.0.4";
 
-// --- 1. UPDATE CONTEXT (Added profileImage) ---
 const UserContext = createContext({ fullName: '', handle: '', memberSince: '', profileImage: '' });
 export const useUser = () => useContext(UserContext);
 
 export default function TabLayout() {
-  const insets = useSafeAreaInsets();
+  const insets = useSafeAreaInsets(); // This variable is only available HERE
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const slideAnim = useRef(new Animated.Value(0)).current;
   
   const [fullName, setFullName] = useState('Athlete');
   const [handle, setHandle] = useState('athlete');
   const [memberSince, setMemberSince] = useState('');
-  const [profileImage, setProfileImage] = useState(''); // Added State for Image
+  const [profileImage, setProfileImage] = useState('');
 
-  // --- 2. UPDATED FETCH LOGIC (Real-time listener) ---
   useEffect(() => {
     const user = auth.currentUser;
     if (!user) return;
-
-    // We use onSnapshot so if you upload a photo on the Profile page, 
-    // the Sidebar updates INSTANTLY without a refresh.
     const unsub = onSnapshot(doc(db, "customers", user.uid), (docSnap) => {
       if (docSnap.exists()) {
         const data = docSnap.data();
         setFullName(data.name || 'Athlete');
         setHandle((data.name || 'athlete').replace(/\s+/g, '_').toLowerCase());
-        setProfileImage(data.profileImage || ''); // Grab the image URL
-        
+        setProfileImage(data.profileImage || '');
         if (data.createdAt) {
           const date = data.createdAt.toDate();
           setMemberSince(date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }));
         }
       }
     });
-
-    return () => unsub(); // Cleanup listener on unmount
+    return () => unsub();
   }, []);
 
   const toggleMenu = () => {
@@ -86,16 +79,13 @@ export default function TabLayout() {
   });
 
   return (
-    // Pass profileImage into the Provider
     <UserContext.Provider value={{ fullName, handle, memberSince, profileImage }}>
       <View style={styles.container}>
         <StatusBar style="light" />
 
-        {/* --- PERSISTENT SIDEBAR --- */}
+        {/* SIDEBAR */}
         <Animated.View style={[styles.sidebar, { paddingTop: insets.top + 20, transform: [{ translateX: sidebarTranslateX }] }]}>
           <View style={styles.sidebarHeader}>
-            
-            {/* --- 3. UPDATED SIDEBAR AVATAR --- */}
             <View style={styles.avatarCircle}>
               {profileImage ? (
                 <Image source={{ uri: profileImage }} style={styles.sidebarPhoto} />
@@ -103,13 +93,11 @@ export default function TabLayout() {
                 <Ionicons name="person" size={35} color="#666" />
               )}
             </View>
-
             <View style={styles.sidebarUserInfo}>
               <Text style={styles.sidebarUserName}>{fullName}</Text>
               <Text style={styles.sidebarHandle}>@{handle}</Text>
             </View>
           </View>
-          
           <View style={styles.sidebarMenuSection}>
             <TouchableOpacity style={styles.sidebarItem}>
               <Ionicons name="settings-outline" size={22} color="#333" />
@@ -120,12 +108,12 @@ export default function TabLayout() {
               <Text style={styles.logoutText}>Sign Out</Text>
             </TouchableOpacity>
           </View>
-          
           <View style={[styles.sidebarFooter, { paddingBottom: insets.bottom + 20 }]}>
             <Text style={styles.versionText}>{APP_VERSION}</Text>
           </View>
         </Animated.View>
 
+        {/* MAIN WRAPPER */}
         <Animated.View style={[styles.mainWrapper, { transform: [{ translateX: contentTranslateX }] }]}>
           {isMenuOpen && (
             <Animated.View style={[styles.overlay, { opacity: overlayOpacity }]}>
@@ -133,16 +121,29 @@ export default function TabLayout() {
             </Animated.View>
           )}
 
-          <View style={[styles.topBlock, { paddingTop: insets.top, height: 70 + insets.top }]}>
+          {/* HEADER SECTION - Dynamic styles moved here */}
+          <View style={[
+            styles.topBlock, 
+            { 
+              paddingTop: insets.top, 
+              height: 70 + insets.top // Dynamic height works here!
+            }
+          ]}>
             <View style={styles.headerContent}>
               <View style={styles.headerSide}>
                 <TouchableOpacity onPress={toggleMenu} hitSlop={{ top: 20, bottom: 20, left: 20, right: 20 }}>
                   <Ionicons name="menu" size={32} color="#FFFFFF" />
                 </TouchableOpacity>
               </View>
+
               <View style={styles.headerCenter}>
-                <Image source={require('../../../assets/training_room_logo2.png')} style={styles.logo} resizeMode="contain" />
+                <Image 
+                  source={require('../../../assets/training_room_logo2.png')} 
+                  style={styles.logo} 
+                  resizeMode="contain" 
+                />
               </View>
+
               <View style={styles.headerSide} />
             </View>
           </View>
@@ -188,9 +189,31 @@ const styles = StyleSheet.create({
   versionText: { color: '#CCC', fontSize: 12, fontWeight: '600' },
   mainWrapper: { flex: 1, backgroundColor: '#F2F2F7', zIndex: 2 },
   overlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.4)', zIndex: 999 },
-  topBlock: { backgroundColor: '#000', paddingHorizontal: 15, borderBottomLeftRadius: 25, borderBottomRightRadius: 25 },
-  headerContent: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  
+  topBlock: { 
+    backgroundColor: '#000', 
+    paddingHorizontal: 15,
+    borderBottomLeftRadius: 25,
+    borderBottomRightRadius: 25,
+    zIndex: 10,
+  },
+  headerContent: { 
+    flex: 1, 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    justifyContent: 'space-between',
+  },
   headerSide: { width: 50 },
-  headerCenter: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  logo: { width: 110, height: 110, marginTop: 10 },
+  headerCenter: { 
+    flex: 1, 
+    alignItems: 'center', 
+    justifyContent: 'center',
+  },
+  menuButton: { width: 44, height: 44, justifyContent: 'center' },
+  logo: { 
+    width: 180, 
+    height: 180, 
+    marginTop: 10, 
+    zIndex: 11,
+  },
 });
