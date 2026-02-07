@@ -1,6 +1,6 @@
 import { auth, db } from '@/fireBaseConfig';
 import { Ionicons } from '@expo/vector-icons';
-import { Tabs } from 'expo-router';
+import { Tabs, router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { doc, onSnapshot } from 'firebase/firestore';
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
@@ -25,7 +25,7 @@ const UserContext = createContext({ fullName: '', handle: '', memberSince: '', p
 export const useUser = () => useContext(UserContext);
 
 export default function TabLayout() {
-  const insets = useSafeAreaInsets(); // This variable is only available HERE
+  const insets = useSafeAreaInsets();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const slideAnim = useRef(new Animated.Value(0)).current;
   
@@ -63,6 +63,12 @@ export default function TabLayout() {
     setIsMenuOpen(!isMenuOpen);
   };
 
+  // Helper to close sidebar and move to a new page
+  const navigateAndClose = (path: any) => {
+    toggleMenu();
+    router.push(path);
+  };
+
   const sidebarTranslateX = slideAnim.interpolate({
     inputRange: [0, 1],
     outputRange: [-SIDEBAR_WIDTH, 0],
@@ -83,7 +89,7 @@ export default function TabLayout() {
       <View style={styles.container}>
         <StatusBar style="light" />
 
-        {/* SIDEBAR */}
+        {/* --- SIDEBAR --- */}
         <Animated.View style={[styles.sidebar, { paddingTop: insets.top + 20, transform: [{ translateX: sidebarTranslateX }] }]}>
           <View style={styles.sidebarHeader}>
             <View style={styles.avatarCircle}>
@@ -98,22 +104,49 @@ export default function TabLayout() {
               <Text style={styles.sidebarHandle}>@{handle}</Text>
             </View>
           </View>
+
           <View style={styles.sidebarMenuSection}>
-            <TouchableOpacity style={styles.sidebarItem}>
-              <Ionicons name="settings-outline" size={22} color="#333" />
-              <Text style={styles.sidebarItemText}>Settings</Text>
+            {/* Account -> Profile Tab */}
+            <TouchableOpacity style={styles.sidebarItem} onPress={() => navigateAndClose('/profile')}>
+              <Ionicons name="person-outline" size={22} color="#333" />
+              <Text style={styles.sidebarItemText}>Account</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.logoutButton} onPress={() => auth.signOut()}>
+
+            {/* Plan -> Programs Tab */}
+            <TouchableOpacity style={styles.sidebarItem} onPress={() => navigateAndClose('/(main)/programs')}>
+              <Ionicons name="list-outline" size={22} color="#333" />
+              <Text style={styles.sidebarItemText}>Plan</Text>
+            </TouchableOpacity>
+
+            {/* Calendar -> Workouts Tab */}
+            <TouchableOpacity style={styles.sidebarItem} onPress={() => navigateAndClose('/workouts')}>
+              <Ionicons name="calendar-outline" size={22} color="#333" />
+              <Text style={styles.sidebarItemText}>Workout Calendar</Text>
+            </TouchableOpacity>
+
+            {/* Your Updates -> Custom Page */}
+            <TouchableOpacity style={styles.sidebarItem} onPress={() => navigateAndClose('/(main)/updates')}>
+              <Ionicons name="notifications-outline" size={22} color="#333" />
+              <Text style={styles.sidebarItemText}>Your Updates</Text>
+            </TouchableOpacity>
+
+            {/* Settings -> Custom Page */}
+            <TouchableOpacity style={styles.sidebarItem} onPress={() => navigateAndClose('/(main)/settings')}>
+              <Ionicons name="shield-checkmark-outline" size={22} color="#333" />
+              <Text style={styles.sidebarItemText}>Settings and Privacy</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={[styles.logoutButton, { marginTop: 20 }]} onPress={() => auth.signOut()}>
               <Ionicons name="log-out-outline" size={22} color="#c62828" />
               <Text style={styles.logoutText}>Sign Out</Text>
             </TouchableOpacity>
           </View>
+          
           <View style={[styles.sidebarFooter, { paddingBottom: insets.bottom + 20 }]}>
             <Text style={styles.versionText}>{APP_VERSION}</Text>
           </View>
         </Animated.View>
 
-        {/* MAIN WRAPPER */}
         <Animated.View style={[styles.mainWrapper, { transform: [{ translateX: contentTranslateX }] }]}>
           {isMenuOpen && (
             <Animated.View style={[styles.overlay, { opacity: overlayOpacity }]}>
@@ -121,12 +154,11 @@ export default function TabLayout() {
             </Animated.View>
           )}
 
-          {/* HEADER SECTION - Dynamic styles moved here */}
           <View style={[
             styles.topBlock, 
             { 
               paddingTop: insets.top, 
-              height: 70 + insets.top // Dynamic height works here!
+              height: 70 + insets.top 
             }
           ]}>
             <View style={styles.headerContent}>
@@ -189,13 +221,12 @@ const styles = StyleSheet.create({
   versionText: { color: '#CCC', fontSize: 12, fontWeight: '600' },
   mainWrapper: { flex: 1, backgroundColor: '#F2F2F7', zIndex: 2 },
   overlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.4)', zIndex: 999 },
-  
   topBlock: { 
     backgroundColor: '#000', 
     paddingHorizontal: 15,
+    zIndex: 10,
     borderBottomLeftRadius: 25,
     borderBottomRightRadius: 25,
-    zIndex: 10,
   },
   headerContent: { 
     flex: 1, 
@@ -212,8 +243,7 @@ const styles = StyleSheet.create({
   menuButton: { width: 44, height: 44, justifyContent: 'center' },
   logo: { 
     width: 180, 
-    height: 180, 
-    marginTop: 10, 
-    zIndex: 11,
+    height: 50, 
+    paddingTop: 2,
   },
 });

@@ -5,7 +5,11 @@ export interface Exercise {
   id: string;
   name: string;
   sets: string;
-  reps: string;
+  reps: string[];
+  groupTitle?: string; // Add this field
+  loggedWeights?: string[];
+  memo?: string;
+  completedSetsCount?: number;
 }
 
 export const addExerciseToDate = async (userId: string, dateString: string, exercise: Exercise) => {

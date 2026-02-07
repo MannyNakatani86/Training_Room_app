@@ -2,33 +2,27 @@ import { auth, db } from '@/fireBaseConfig';
 import { Exercise } from '@/services/workoutService';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { doc, getDoc } from 'firebase/firestore';
+import { doc, onSnapshot, updateDoc } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
-  KeyboardAvoidingView,
+  Alert,
   Modal,
-  Platform,
-  SafeAreaView,
   ScrollView,
+  StatusBar,
   StyleSheet,
   Text,
-  TextInput,
   TouchableOpacity,
   View
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function ActiveWorkoutScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const [exercises, setExercises] = useState<Exercise[]>([]);
-  const [completedIds, setCompletedIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
-
-  // Modal States
-  const [weightModalVisible, setWeightModalVisible] = useState(false);
-  const [finishModalVisible, setFinishModalVisible] = useState(false); // New Finish Modal
-  const [activeExercise, setActiveExercise] = useState<Exercise | null>(null);
-  const [weights, setWeights] = useState<string[]>([]);
+  const [finishModalVisible, setFinishModalVisible] = useState(false);
 
   const getFormattedStr = (date: Date) => {
     const offset = date.getTimezoneOffset();
@@ -37,220 +31,197 @@ export default function ActiveWorkoutScreen() {
   };
 
   useEffect(() => {
-    const fetchTodayWorkout = async () => {
-      const user = auth.currentUser;
-      if (!user) return;
-      const todayStr = getFormattedStr(new Date());
-      try {
-        const docRef = doc(db, "customers", user.uid, "workouts", todayStr);
-        const docSnap = await getDoc(docRef);
-        if (docSnap.exists()) {
-          setExercises(docSnap.data().exercises || []);
-        } else {
-          // If no workout, we just go back
-          router.replace('/(main)/(tabs)');
-        }
-      } catch (error) {
-        console.error(error);
-      } finally {
-        setLoading(false);
+    const user = auth.currentUser;
+    if (!user) return;
+    const unsub = onSnapshot(doc(db, "customers", user.uid, "workouts", getFormattedStr(new Date())), (docSnap) => {
+      if (docSnap.exists()) {
+        setExercises(docSnap.data().exercises || []);
+      } else {
+        router.replace('/(main)/(tabs)');
       }
-    };
-    fetchTodayWorkout();
+      setLoading(false);
+    });
+    return () => unsub();
   }, []);
 
-  const openWeightModal = (ex: Exercise) => {
-    setActiveExercise(ex);
-    const numSets = parseInt(ex.sets) || 0;
-    setWeights(new Array(numSets).fill(''));
-    setWeightModalVisible(true);
-  };
+  // --- LOGIC: Group exercises by their groupTitle ---
+  const groupedExercises = exercises.reduce((groups: { [key: string]: Exercise[] }, ex) => {
+    const title = ex.groupTitle || "General Exercises";
+    if (!groups[title]) groups[title] = [];
+    groups[title].push(ex);
+    return groups;
+  }, {});
 
-  const updateWeight = (index: number, val: string) => {
-    const newWeights = [...weights];
-    newWeights[index] = val;
-    setWeights(newWeights);
-  };
+  const groupNames = Object.keys(groupedExercises);
 
-  const saveWeights = () => {
-    if (activeExercise) {
-      if (!completedIds.includes(activeExercise.id)) {
-        setCompletedIds([...completedIds, activeExercise.id]);
-      }
+  const finishWorkoutSession = async () => {
+    const user = auth.currentUser;
+    if (!user) return;
+    try {
+      const docRef = doc(db, "customers", user.uid, "workouts", getFormattedStr(new Date()));
+      await updateDoc(docRef, { isFinished: true, finishedAt: new Date() });
+      setFinishModalVisible(false);
+      router.replace('/(main)/(tabs)');
+    } catch (error) {
+      Alert.alert("Error", "Could not save results.");
     }
-    setWeightModalVisible(false);
   };
 
-  if (loading) {
-    return (
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-        <ActivityIndicator size="large" color="#c62828" />
-      </View>
-    );
-  }
+  if (loading) return <View style={styles.center}><ActivityIndicator size="large" color="#c62828" /></View>;
 
   return (
-    <SafeAreaView style={styles.container}>
-      {/* HEADER */}
+    <View style={[styles.container, { paddingTop: insets.top }]}>
+      <StatusBar barStyle="dark-content" />
+      
       <View style={styles.header}>
-        <View style={{ width: 28 }} /> 
-        <Text style={styles.headerTitle}>Workout Mode</Text>
-        <View style={{ width: 28 }} />
+        <View style={{ width: 40 }} />
+        <Text style={styles.headerTitle}>ACTIVE SESSION</Text>
+        <View style={{ width: 40 }} />
       </View>
 
-      <ScrollView contentContainerStyle={styles.scrollContent}>
-        <Text style={styles.title}>Today's Session</Text>
-        <Text style={styles.subtitle}>Tap an exercise to log your weight</Text>
+      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        
+        {groupNames.map((groupName, gIndex) => (
+          <View key={groupName} style={styles.groupContainer}>
+            
+            {/* 1. WHITE HEADER BOX FOR THE GROUP */}
+            <View style={styles.groupHeaderBox}>
+              <Text style={styles.groupHeaderText}>{groupName.toUpperCase()}</Text>
+              <TouchableOpacity>
+                <Ionicons name="ellipsis-horizontal" size={18} color="#AAA" />
+              </TouchableOpacity>
+            </View>
 
-        {exercises.map((ex) => {
-          const isDone = completedIds.includes(ex.id);
-          return (
-            <TouchableOpacity 
-              key={ex.id} 
-              style={[styles.exerciseCard, isDone && styles.cardDone]}
-              onPress={() => openWeightModal(ex)}
-            >
-              <View style={styles.cardLeft}>
-                <View style={[styles.checkCircle, isDone && styles.checkCircleDone]}>
-                  {isDone && <Ionicons name="checkmark" size={20} color="#FFF" />}
-                </View>
-                <View>
-                  <Text style={[styles.exName, isDone && styles.textDone]}>{ex.name}</Text>
-                  <Text style={styles.exMeta}>{ex.sets} Sets • {ex.reps} Reps</Text>
-                </View>
+            {/* 2. EXERCISES INSIDE THIS GROUP */}
+            <View style={styles.exercisesListInsideGroup}>
+              {groupedExercises[groupName].map((ex, exIndex) => {
+                const hasLogs = ex.loggedWeights && ex.loggedWeights.some((w: string) => w !== '');
+                return (
+                  <TouchableOpacity 
+                    key={ex.id} 
+                    style={[styles.exerciseRow, exIndex === groupedExercises[groupName].length - 1 && { borderBottomWidth: 0 }]}
+                    onPress={() => router.push({
+                      pathname: '/(main)/log-exercise',
+                      params: { exerciseId: ex.id, exerciseName: ex.name, sets: ex.sets, reps: ex.reps }
+                    })}
+                  >
+                    <View style={styles.exerciseInfo}>
+                      <Text style={[styles.exName, hasLogs && styles.textDone]}>{ex.name}</Text>
+                      <Text style={styles.exMeta}>{ex.sets} Sets • {Array.isArray(ex.reps) ? ex.reps.join(', ') : ex.reps} Reps</Text>
+                    </View>
+                    <View style={[styles.statusCircle, hasLogs && styles.statusCircleDone]}>
+                      <Ionicons 
+                        name={hasLogs ? "checkmark" : "chevron-forward"} 
+                        size={16} 
+                        color={hasLogs ? "#FFF" : "#CCC"} 
+                      />
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            {/* 3. VERTICAL LINE BETWEEN GROUPS */}
+            {gIndex < groupNames.length - 1 && (
+              <View style={styles.lineWrapper}>
+                <View style={styles.verticalLine} />
               </View>
-              <Ionicons name="chevron-forward" size={20} color="#CCC" />
-            </TouchableOpacity>
-          );
-        })}
+            )}
+          </View>
+        ))}
+        <View style={{ height: 60 }} />
       </ScrollView>
 
-      {/* BOTTOM ACTION */}
-      <View style={styles.footer}>
-        <TouchableOpacity 
-          style={styles.finishBtn} 
-          onPress={() => setFinishModalVisible(true)} // Open Custom Modal instead of Alert
-        >
-          <Text style={styles.finishBtnText}>Finish Workout</Text>
+      <View style={[styles.footer, { paddingBottom: insets.bottom + 10 }]}>
+        <TouchableOpacity style={styles.finishBtn} onPress={() => setFinishModalVisible(true)}>
+          <Text style={styles.finishBtnText}>FINISH WORKOUT</Text>
         </TouchableOpacity>
       </View>
 
-      {/* 1. WEIGHT INPUT MODAL */}
-      <Modal visible={weightModalVisible} animationType="slide" transparent={true}>
-        <View style={styles.modalOverlay}>
-          <KeyboardAvoidingView 
-            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-            style={styles.modalContent}
-          >
-            <Text style={styles.modalTitle}>{activeExercise?.name}</Text>
-            <Text style={styles.modalSubtitle}>Enter weight for each set</Text>
-
-            <ScrollView style={{ maxHeight: 300 }}>
-              {weights.map((w, index) => (
-                <View key={index} style={styles.weightRow}>
-                  <Text style={styles.setLabel}>Set {index + 1}</Text>
-                  <TextInput
-                    style={styles.weightInput}
-                    placeholder="0"
-                    keyboardType="numeric"
-                    value={w}
-                    onChangeText={(text) => updateWeight(index, text)}
-                  />
-                </View>
-              ))}
-            </ScrollView>
-
-            <View style={styles.modalActions}>
-              <TouchableOpacity style={styles.cancelModalBtn} onPress={() => setWeightModalVisible(false)}>
-                <Text style={styles.cancelText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.saveModalBtn} onPress={saveWeights}>
-                <Text style={styles.saveText}>Save Sets</Text>
-              </TouchableOpacity>
-            </View>
-          </KeyboardAvoidingView>
-        </View>
-      </Modal>
-
-      {/* 2. CUSTOM FINISH CONFIRMATION MODAL */}
+      {/* FINISH MODAL */}
       <Modal visible={finishModalVisible} animationType="fade" transparent={true}>
         <View style={styles.centerModalOverlay}>
           <View style={styles.confirmBox}>
-            <View style={styles.confirmIconCircle}>
-              <Ionicons name="trophy-outline" size={40} color="#c62828" />
-            </View>
+            <Ionicons name="trophy-outline" size={50} color="#c62828" style={{ marginBottom: 15 }} />
             <Text style={styles.confirmTitle}>Finish Workout?</Text>
-            <Text style={styles.confirmSubtitle}>
-              Great job! You completed {completedIds.length} out of {exercises.length} exercises.
-            </Text>
-            
-            <TouchableOpacity 
-              style={styles.confirmFinishBtn} 
-              onPress={() => {
-                setFinishModalVisible(false);
-                router.replace('/(main)/(tabs)');
-              }}
-            >
-              <Text style={styles.confirmFinishText}>Finish Session</Text>
+            <TouchableOpacity style={styles.confirmFinishBtn} onPress={finishWorkoutSession}>
+              <Text style={styles.confirmFinishText}>FINISH SESSION</Text>
             </TouchableOpacity>
-
-            <TouchableOpacity 
-              style={styles.keepLiftingBtn} 
-              onPress={() => setFinishModalVisible(false)}
-            >
-              <Text style={styles.keepLiftingText}>Keep Lifting</Text>
+            <TouchableOpacity style={{ marginTop: 15 }} onPress={() => setFinishModalVisible(false)}>
+              <Text style={{ color: '#666' }}>KEEP LIFTING</Text>
             </TouchableOpacity>
           </View>
         </View>
       </Modal>
-
-    </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#FFF' },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 15, borderBottomWidth: 1, borderBottomColor: '#F2F2F7' },
-  headerTitle: { fontSize: 16, fontWeight: '700', color: '#000', textTransform: 'uppercase', letterSpacing: 1 },
-  scrollContent: { padding: 25 },
-  title: { fontSize: 28, fontWeight: '900', color: '#000' },
-  subtitle: { fontSize: 16, color: '#666', marginBottom: 30 },
-  exerciseCard: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 20, borderRadius: 20, backgroundColor: '#F9F9FB', marginBottom: 15, borderWidth: 1, borderColor: '#F0F0F0' },
-  cardDone: { backgroundColor: '#F2F2F7', borderColor: '#DDD', opacity: 0.8 },
-  cardLeft: { flexDirection: 'row', alignItems: 'center' },
-  checkCircle: { width: 30, height: 30, borderRadius: 15, borderWidth: 2, borderColor: '#DDD', marginRight: 15, alignItems: 'center', justifyContent: 'center' },
-  checkCircleDone: { backgroundColor: '#34C759', borderColor: '#34C759' },
-  exName: { fontSize: 18, fontWeight: '700', color: '#000' },
-  exMeta: { fontSize: 14, color: '#888', marginTop: 2 },
-  textDone: { textDecorationLine: 'line-through', color: '#AAA' },
-  footer: { padding: 20, borderTopWidth: 1, borderTopColor: '#F2F2F7' },
-  finishBtn: { backgroundColor: '#000', height: 60, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
-  finishBtnText: { color: '#FFF', fontSize: 18, fontWeight: 'bold' },
+  container: { flex: 1, backgroundColor: '#F2F2F7' },
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 15, backgroundColor: '#FFF', borderBottomWidth: 1, borderBottomColor: '#E5E5EA' },
+  headerTitle: { fontSize: 15, fontWeight: '800', color: '#000', letterSpacing: 1 },
 
-  // Shared Overlay
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
-  centerModalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center', padding: 30 },
-  
-  // Weight Modal
-  modalContent: { backgroundColor: '#FFF', borderTopLeftRadius: 30, borderTopRightRadius: 30, padding: 30, paddingBottom: 50 },
-  modalTitle: { fontSize: 22, fontWeight: '900', color: '#000', marginBottom: 5 },
-  modalSubtitle: { fontSize: 14, color: '#666', marginBottom: 20 },
-  weightRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 15, backgroundColor: '#F2F2F7', padding: 15, borderRadius: 15 },
-  setLabel: { fontSize: 16, fontWeight: '600', color: '#333' },
-  weightInput: { backgroundColor: '#FFF', width: 80, padding: 10, borderRadius: 10, textAlign: 'center', fontSize: 18, fontWeight: 'bold', borderWidth: 1, borderColor: '#DDD' },
-  modalActions: { flexDirection: 'row', gap: 15, marginTop: 20 },
-  cancelModalBtn: { flex: 1, alignItems: 'center', padding: 18 },
-  saveModalBtn: { flex: 2, backgroundColor: '#c62828', borderRadius: 15, alignItems: 'center', padding: 18 },
-  cancelText: { color: '#666', fontWeight: '600' },
-  saveText: { color: '#FFF', fontWeight: 'bold' },
+  scrollContent: { padding: 20 },
 
-  // Finish Confirmation Box
+  groupContainer: { width: '100%', alignItems: 'center' },
+
+  // WHITE GROUP BOX
+  groupHeaderBox: { 
+    flexDirection: 'row', 
+    justifyContent: 'space-between', 
+    alignItems: 'center', 
+    backgroundColor: '#FFF', 
+    width: '100%',
+    paddingVertical: 14,
+    paddingHorizontal: 18,
+    borderTopLeftRadius: 15,
+    borderTopRightRadius: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F2F2F7',
+  },
+  groupHeaderText: { color: '#000', fontSize: 13, fontWeight: '900', letterSpacing: 0.5 },
+
+  // CONTAINER FOR EXERCISES
+  exercisesListInsideGroup: {
+    backgroundColor: '#FFF',
+    width: '100%',
+    borderBottomLeftRadius: 15,
+    borderBottomRightRadius: 15,
+    paddingHorizontal: 18,
+    marginBottom: 5,
+    shadowColor: '#000',
+    shadowOpacity: 0.03,
+    shadowRadius: 10,
+    elevation: 2,
+  },
+  exerciseRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 18,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F2F2F7',
+  },
+  exerciseInfo: { flex: 1 },
+  exName: { fontSize: 17, fontWeight: '700', color: '#000' },
+  exMeta: { fontSize: 13, color: '#8E8E93', marginTop: 4, fontWeight: '500' },
+  textDone: { color: '#AAA', textDecorationLine: 'none' },
+
+  statusCircle: { width: 28, height: 28, borderRadius: 14, backgroundColor: '#F9F9FB', justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: '#EEE' },
+  statusCircleDone: { backgroundColor: '#c62828', borderColor: '#c62828' },
+
+  // LINE BETWEEN GROUPS
+  lineWrapper: { height: 35, alignItems: 'center' },
+  verticalLine: { width: 2, flex: 1, backgroundColor: '#D1D1D6' },
+
+  footer: { paddingHorizontal: 20, backgroundColor: '#FFF', borderTopWidth: 1, borderTopColor: '#E5E5EA', paddingTop: 10 },
+  finishBtn: { backgroundColor: '#000', height: 60, borderRadius: 15, justifyContent: 'center', alignItems: 'center' },
+  finishBtnText: { color: '#FFF', fontSize: 16, fontWeight: '900', letterSpacing: 1 },
+
+  centerModalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 30 },
   confirmBox: { backgroundColor: '#FFF', borderRadius: 25, width: '100%', padding: 25, alignItems: 'center' },
-  confirmIconCircle: { width: 80, height: 80, borderRadius: 40, backgroundColor: '#FFEBEE', justifyContent: 'center', alignItems: 'center', marginBottom: 20 },
-  confirmTitle: { fontSize: 22, fontWeight: 'bold', color: '#000', marginBottom: 10 },
-  confirmSubtitle: { fontSize: 15, color: '#666', textAlign: 'center', marginBottom: 25, lineHeight: 22 },
-  confirmFinishBtn: { backgroundColor: '#c62828', width: '100%', padding: 18, borderRadius: 15, alignItems: 'center', marginBottom: 10 },
-  confirmFinishText: { color: '#FFF', fontWeight: 'bold', fontSize: 16 },
-  keepLiftingBtn: { padding: 15 },
-  keepLiftingText: { color: '#666', fontWeight: '600' }
+  confirmTitle: { fontSize: 20, fontWeight: 'bold', marginBottom: 20 },
+  confirmFinishBtn: { backgroundColor: '#c62828', width: '100%', padding: 18, borderRadius: 15, alignItems: 'center' },
+  confirmFinishText: { color: '#FFF', fontWeight: 'bold' }
 });
