@@ -3,7 +3,7 @@ import { uploadProfileImage } from '@/services/customerServices';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
-import { collection, getDocs, query } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, query } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
@@ -22,24 +22,31 @@ export default function ProfileScreen() {
   const { fullName, handle, memberSince, profileImage } = useUser();
   const [uploading, setUploading] = useState(false);
   
+  // Stats State
   const [workoutCount, setWorkoutCount] = useState(0);
   const [consistency, setConsistency] = useState(0);
+  const [bestRank, setBestRank] = useState('--'); // NEW: Rank State
   const [loadingStats, setLoadingStats] = useState(true);
 
+  // --- FETCH REAL STATS FROM FIRESTORE ---
   useEffect(() => {
     const fetchStats = async () => {
       const user = auth.currentUser;
       if (!user) return;
+
       try {
+        // 1. Fetch Workouts Collection for count and consistency
         const workoutsRef = collection(db, "customers", user.uid, "workouts");
-        const querySnapshot = await getDocs(query(workoutsRef));
+        const workoutSnap = await getDocs(query(workoutsRef));
+
         let completedWorkouts = 0;
         let totalScheduledSets = 0;
         let totalActualSets = 0;
 
-        querySnapshot.forEach((doc) => {
+        workoutSnap.forEach((doc) => {
           const data = doc.data();
           if (data.isFinished === true) completedWorkouts++;
+
           if (data.exercises && Array.isArray(data.exercises)) {
             data.exercises.forEach((ex: any) => {
               totalScheduledSets += parseInt(ex.sets) || 0;
@@ -48,38 +55,56 @@ export default function ProfileScreen() {
           }
         });
 
+        // 2. Fetch User Document for the Best Rank
+        // We look for a field called 'bestGlobalRank' that we will update later
+        const userDoc = await getDoc(doc(db, "customers", user.uid));
+        if (userDoc.exists()) {
+          const userData = userDoc.data();
+          if (userData.bestGlobalRank) {
+            setBestRank(`#${userData.bestGlobalRank}`);
+          } else {
+            // If they have completed workouts but no rank yet, they are technically #1 for now
+            setBestRank(completedWorkouts > 0 ? '#1' : '--');
+          }
+        }
+
         const consistencyPercent = totalScheduledSets > 0 
-          ? Math.round((totalActualSets / totalScheduledSets) * 100) : 0;
+          ? Math.round((totalActualSets / totalScheduledSets) * 100) 
+          : 0;
 
         setWorkoutCount(completedWorkouts);
         setConsistency(consistencyPercent > 100 ? 100 : consistencyPercent);
       } catch (error) {
-        console.error(error);
+        console.error("Error fetching stats:", error);
       } finally {
         setLoadingStats(false);
       }
     };
+
     fetchStats();
   }, []);
 
+  // --- IMAGE PICKER LOGIC ---
   const pickImage = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') {
-      Alert.alert('Permission Denied', 'Access required to change photo.');
+      Alert.alert('Permission Denied', 'Allow access to photos to update your profile.');
       return;
     }
+
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsEditing: true,
       aspect: [1, 1],
       quality: 0.5,
     });
+
     if (!result.canceled) {
       setUploading(true);
       const user = auth.currentUser;
       if (user) {
         const res = await uploadProfileImage(user.uid, result.assets[0].uri);
-        if (!res.success) Alert.alert('Error', 'Upload failed.');
+        if (!res.success) Alert.alert('Error', 'Failed to upload image.');
       }
       setUploading(false);
     }
@@ -89,7 +114,7 @@ export default function ProfileScreen() {
     <View style={styles.container}>
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         
-        {/* HEADER */}
+        {/* 1. PROFILE HEADER */}
         <View style={styles.profileHeader}>
           <View style={styles.avatarContainer}>
             <View style={styles.avatarCircle}>
@@ -105,31 +130,42 @@ export default function ProfileScreen() {
               <Ionicons name="camera" size={16} color="#FFF" />
             </TouchableOpacity>
           </View>
+          
           <Text style={styles.userName}>{fullName}</Text>
           <Text style={styles.userHandle}>@{handle}</Text>
           <Text style={styles.memberSinceText}>Member since {memberSince || '...'}</Text>
         </View>
 
-        {/* STATS */}
+        {/* 2. UPDATED STATS BAR WITH REAL RANK */}
         <View style={styles.statsContainer}>
           <View style={styles.statBox}>
             {loadingStats ? <ActivityIndicator size="small" color="#c62828" /> : <Text style={styles.statNumber}>{workoutCount}</Text>}
             <Text style={styles.statLabel}>Workouts</Text>
           </View>
-          <View style={[styles.statBox, styles.statBorder]}><Text style={styles.statNumber}>--</Text><Text style={styles.statLabel}>Rank</Text></View>
+          
+          <View style={[styles.statBox, styles.statBorder]}>
+            {loadingStats ? <ActivityIndicator size="small" color="#c62828" /> : <Text style={styles.statNumber}>{bestRank}</Text>}
+            <Text style={styles.statLabel}>Best Rank</Text>
+          </View>
+          
           <View style={styles.statBox}>
             {loadingStats ? <ActivityIndicator size="small" color="#c62828" /> : <Text style={styles.statNumber}>{consistency}%</Text>}
             <Text style={styles.statLabel}>Consistency</Text>
           </View>
         </View>
 
-        {/* TRAINING DETAILS */}
+        {/* 3. TRAINING DETAILS SECTION */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Training Details</Text>
           
           <TouchableOpacity style={styles.optionRow} onPress={() => router.push('/(main)/registered-exercises')}>
-            <View style={[styles.optionIconCircle, { backgroundColor: '#FFEBEE' }]}><Ionicons name="list-circle" size={24} color="#c62828" /></View>
-            <View style={styles.optionTextContainer}><Text style={styles.optionTitle}>Registered Exercises</Text><Text style={styles.optionSubtitle}>View and sort history</Text></View>
+            <View style={[styles.optionIconCircle, { backgroundColor: '#FFEBEE' }]}>
+              <Ionicons name="list-circle" size={24} color="#c62828" />
+            </View>
+            <View style={styles.optionTextContainer}>
+              <Text style={styles.optionTitle}>Registered Exercises</Text>
+              <Text style={styles.optionSubtitle}>View and sort history</Text>
+            </View>
             <Ionicons name="chevron-forward" size={20} color="#CCC" />
           </TouchableOpacity>
 
@@ -146,8 +182,13 @@ export default function ProfileScreen() {
 function ProfileOption({ icon, title, subtitle }: { icon: any, title: string, subtitle?: string }) {
   return (
     <TouchableOpacity style={styles.optionRow} activeOpacity={0.7}>
-      <View style={styles.optionIconCircle}><Ionicons name={icon} size={22} color="#000" /></View>
-      <View style={styles.optionTextContainer}><Text style={styles.optionTitle}>{title}</Text>{subtitle && <Text style={styles.optionSubtitle}>{subtitle}</Text>}</View>
+      <View style={styles.optionIconCircle}>
+        <Ionicons name={icon} size={22} color="#000" />
+      </View>
+      <View style={styles.optionTextContainer}>
+        <Text style={styles.optionTitle}>{title}</Text>
+        {subtitle && <Text style={styles.optionSubtitle}>{subtitle}</Text>}
+      </View>
       <Ionicons name="chevron-forward" size={20} color="#CCC" />
     </TouchableOpacity>
   );
@@ -164,7 +205,7 @@ const styles = StyleSheet.create({
   userName: { fontSize: 24, fontWeight: '900', color: '#000' },
   userHandle: { fontSize: 15, color: '#888', marginTop: 2 },
   memberSinceText: { fontSize: 13, color: '#AAA', marginTop: 8, fontWeight: '500' },
-  statsContainer: { flexDirection: 'row', backgroundColor: '#FFF', borderRadius: 20, padding: 20, marginBottom: 30, elevation: 2 },
+  statsContainer: { flexDirection: 'row', backgroundColor: '#FFF', borderRadius: 20, padding: 20, marginBottom: 30, elevation: 2, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 5 },
   statBox: { flex: 1, alignItems: 'center' },
   statBorder: { borderLeftWidth: 1, borderRightWidth: 1, borderColor: '#F0F0F0' },
   statNumber: { fontSize: 20, fontWeight: 'bold', color: '#c62828' },

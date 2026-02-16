@@ -1,5 +1,5 @@
-import { doc, serverTimestamp, setDoc, updateDoc } from "firebase/firestore";
-import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
+import { collection, deleteDoc, doc, getDocs, query, serverTimestamp, setDoc, updateDoc } from "firebase/firestore";
+import { deleteObject, getDownloadURL, ref, uploadBytes } from "firebase/storage";
 import { db, storage } from '../fireBaseConfig'; // This imports the database you initialized
 
 // We define what a "Customer" looks like for TypeScript
@@ -46,6 +46,34 @@ export const uploadProfileImage = async (userId: string, uri: string) => {
     return { success: true, url: downloadURL };
   } catch (error) {
     console.error("Error uploading image:", error);
+    return { success: false, error };
+  }
+};
+
+export const deleteUserData = async (userId: string) => {
+  try {
+    // 1. Delete the main customer profile document
+    await deleteDoc(doc(db, "customers", userId));
+
+    // 2. Optional: Delete the workouts sub-collection
+    // Note: Firestore doesn't delete sub-collections automatically on the client side.
+    // We fetch them and delete them manually.
+    const workoutsRef = collection(db, "customers", userId, "workouts");
+    const snapshot = await getDocs(query(workoutsRef));
+    const deletePromises = snapshot.docs.map(d => deleteDoc(d.ref));
+    await Promise.all(deletePromises);
+
+    // 3. Delete profile image from Storage if it exists
+    const imageRef = ref(storage, `profile_images/${userId}`);
+    try {
+      await deleteObject(imageRef);
+    } catch (e) {
+      // Ignore error if no image existed
+    }
+
+    return { success: true };
+  } catch (error) {
+    console.error("Error deleting user data:", error);
     return { success: false, error };
   }
 };
