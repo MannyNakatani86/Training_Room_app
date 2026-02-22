@@ -20,14 +20,8 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
   UIManager.setLayoutAnimationEnabledExperimental(true);
 }
 
-const DEFAULT_EXERCISES = [
-  "Bench Press", "Back Squat", "Front Squat", "Incline Bench Press",
-  "Deadlift", "Clean", "Snatch", "Hang Clean", "Hang Snatch",
-  "Block Clean", "Block Snatch", "Push Press", "Power Jerk",
-  "Split Jerk", "Trap Bar Deadlift"
-];
-
-const WORKOUT_GROUPS = ["Primer", "Power Movements", "Main Lifts", "Accessories"];
+const DEFAULT_EXERCISES = ["Bench Press", "Back Squat", "Front Squat", "Incline Bench Press", "Deadlift", "Clean", "Snatch", "Hang Clean", "Hang Snatch", "Block Clean", "Block Snatch", "Push Press", "Power Jerk", "Split Jerk", "Trap Bar Deadlift"];
+const QUICK_GROUPS = ["Primer", "Power Movements", "Main Lifts", "Accessories"];
 
 export default function WorkoutsScreen() {
   const router = useRouter();
@@ -36,14 +30,13 @@ export default function WorkoutsScreen() {
   const [isExpanded, setIsExpanded] = useState(false);
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [exercises, setExercises] = useState<Exercise[]>([]);
+  const [isFinished, setIsFinished] = useState(false);
   const [weekDates, setWeekDates] = useState<Date[]>([]);
 
-  // Modal & Form State
   const [modalVisible, setModalVisible] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [newExName, setNewExName] = useState('');
-  const [newGroupTitle, setNewGroupTitle] = useState('Main Lifts'); // Default
-  const [showGroupDropdown, setShowGroupDropdown] = useState(false);
+  const [newGroupTitle, setNewGroupTitle] = useState('Main Lifts');
   const [newSets, setNewSets] = useState('');
   const [repsArray, setRepsArray] = useState<string[]>([]);
   const [filteredSuggestions, setFilteredSuggestions] = useState<string[]>([]);
@@ -57,39 +50,28 @@ export default function WorkoutsScreen() {
   const selectedStr = getFormattedStr(selectedDate);
   const todayStr = getFormattedStr(new Date());
 
-  const handleDayPress = (dateString: string) => {
-    const [y, m, d] = dateString.split('-').map(Number);
-    setSelectedDate(new Date(y, m - 1, d));
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    setIsExpanded(false);
-  };
+  useEffect(() => {
+    const user = auth.currentUser;
+    if (!user) return;
+    return onSnapshot(doc(db, "customers", user.uid, "workouts", selectedStr), (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        setExercises(data.exercises || []);
+        setIsFinished(data.isFinished || false);
+      } else {
+        setExercises([]);
+        setIsFinished(false);
+      }
+    });
+  }, [selectedStr]);
 
   useEffect(() => {
     const startOfWeek = new Date(selectedDate);
     startOfWeek.setDate(selectedDate.getDate() - selectedDate.getDay());
     setWeekDates(Array.from({ length: 7 }, (_, i) => {
-      const d = new Date(startOfWeek);
-      d.setDate(startOfWeek.getDate() + i);
-      return d;
+      const d = new Date(startOfWeek); d.setDate(startOfWeek.getDate() + i); return d;
     }));
   }, [selectedDate]);
-
-  useEffect(() => {
-    const user = auth.currentUser;
-    if (!user) return;
-    const unsub = onSnapshot(doc(db, "customers", user.uid, "workouts", selectedStr), (docSnap) => {
-      setExercises(docSnap.exists() ? docSnap.data().exercises || [] : []);
-    });
-    return () => unsub();
-  }, [selectedStr]);
-
-  const handleSetsChange = (val: string) => {
-    setNewSets(val);
-    const num = parseInt(val) || 0;
-    const newArr = new Array(num).fill('');
-    repsArray.forEach((v, i) => { if (i < num) newArr[i] = v; });
-    setRepsArray(newArr);
-  };
 
   const handleNameChange = (text: string) => {
     setNewExName(text);
@@ -101,27 +83,27 @@ export default function WorkoutsScreen() {
     }
   };
 
+  const handleSetsChange = (val: string) => {
+    setNewSets(val);
+    const num = parseInt(val) || 0;
+    const newArr = new Array(num).fill('');
+    repsArray.forEach((v, i) => { if(i < num) newArr[i] = v; });
+    setRepsArray(newArr);
+  };
+
   const handleSave = async () => {
     if (!newExName || !newSets || repsArray.some(r => r === '')) return Alert.alert("Error", "Fill all fields");
     const user = auth.currentUser;
     if (user) {
-      const data: Exercise = { 
-        id: editingId || Date.now().toString(), 
-        name: newExName, 
-        sets: newSets, 
-        reps: repsArray,
-        groupTitle: newGroupTitle 
-      };
+      const data: Exercise = { id: editingId || Date.now().toString(), name: newExName, sets: newSets, reps: repsArray, groupTitle: newGroupTitle || "General" };
       const res = editingId ? await updateExerciseInDate(user.uid, selectedStr, data) : await addExerciseToDate(user.uid, selectedStr, data);
       if (res.success) closeModal();
     }
   };
 
   const closeModal = () => {
-    setModalVisible(false);
-    setEditingId(null);
+    setModalVisible(false); setEditingId(null);
     setNewExName(''); setNewSets(''); setRepsArray([]); setNewGroupTitle('Main Lifts');
-    setShowGroupDropdown(false);
     setFilteredSuggestions([]);
   };
 
@@ -136,26 +118,22 @@ export default function WorkoutsScreen() {
     <View style={styles.container}>
       <ScrollView showsVerticalScrollIndicator={false}>
         <View style={styles.calendarCard}>
-          <TouchableOpacity style={styles.monthToggle} onPress={() => {
-            LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-            setIsExpanded(!isExpanded);
-          }}>
+          <TouchableOpacity style={styles.monthToggle} onPress={() => { LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut); setIsExpanded(!isExpanded); }}>
             <Text style={styles.monthLabel}>{selectedDate.toLocaleString('default', { month: 'long', year: 'numeric' })}</Text>
             <Ionicons name={isExpanded ? "chevron-up" : "chevron-down"} size={18} color="#000" />
           </TouchableOpacity>
-
           {isExpanded ? (
-            <Calendar current={selectedStr} onDayPress={day => handleDayPress(day.dateString)} theme={{ todayTextColor: '#c62828', selectedDayBackgroundColor: '#c62828' } as any}/>
+            <Calendar current={selectedStr} onDayPress={day => { const [y,m,d] = day.dateString.split('-').map(Number); setSelectedDate(new Date(y, m-1, d)); setIsExpanded(false); }} theme={{ todayTextColor: '#c62828', selectedDayBackgroundColor: '#c62828' } as any}/>
           ) : (
             <View style={styles.weekStrip}>
               {weekDates.map((date, i) => {
-                const dateStr = getFormattedStr(date);
-                const isSelected = dateStr === selectedStr;
+                const dStr = getFormattedStr(date);
+                const isSelected = dStr === selectedStr;
                 return (
                   <TouchableOpacity key={i} style={styles.dayCol} onPress={() => setSelectedDate(date)}>
                     <Text style={styles.dayLabel}>{date.toLocaleString('default', { weekday: 'short' }).charAt(0)}</Text>
                     <Text style={[styles.dateText, isSelected && styles.selectedDateText]}>{date.getDate()}</Text>
-                    {dateStr === todayStr && !isSelected && <View style={styles.todayDot} />}
+                    {dStr === todayStr && !isSelected && <View style={styles.todayDot} />}
                   </TouchableOpacity>
                 );
               })}
@@ -164,6 +142,8 @@ export default function WorkoutsScreen() {
         </View>
 
         <View style={styles.previewSection}>
+          <Text style={styles.sectionHeader}>{selectedStr === todayStr ? "Today's Plan" : `Plan for ${selectedDate.toDateString()}`}</Text>
+          
           {Object.keys(groupedExercises).length === 0 ? (
             <View style={styles.emptyContainer}><Text style={styles.emptyText}>No exercises planned.</Text></View>
           ) : (
@@ -173,19 +153,27 @@ export default function WorkoutsScreen() {
                 {(groupedExercises[groupName] || []).map((item) => (
                   <View key={item.id} style={styles.exerciseRow}>
                     <View style={styles.exerciseInfo}>
-                      <Text style={styles.exerciseName}>{item.name}</Text>
+                      <Text style={[styles.exerciseName, isFinished && { color: '#888' }]}>{item.name}</Text>
                       <Text style={styles.exerciseMeta}>{item.sets} Sets • {Array.isArray(item.reps) ? item.reps.join(', ') : item.reps} Reps</Text>
                     </View>
-                    <View style={styles.actionRow}>
-                      <TouchableOpacity onPress={() => {
-                        setEditingId(item.id); setNewExName(item.name); 
-                        setNewSets(item.sets); setRepsArray(Array.isArray(item.reps) ? item.reps : [item.reps]); 
-                        setNewGroupTitle(item.groupTitle || 'Main Lifts'); setModalVisible(true);
-                      }} style={styles.actionBtn}><Ionicons name="pencil" size={18} color="#007AFF" /></TouchableOpacity>
-                      <TouchableOpacity onPress={() => {
-                        Alert.alert("Delete", "Remove exercise?", [{ text: "Cancel" }, { text: "Delete", style: "destructive", onPress: async () => { const user = auth.currentUser; if (user) await deleteExerciseFromDate(user.uid, selectedStr, item.id); }}]);
-                      }} style={styles.actionBtn}><Ionicons name="trash" size={18} color="#FF3B30" /></TouchableOpacity>
-                    </View>
+                    {!isFinished && (
+                      <View style={styles.actionRow}>
+                        <TouchableOpacity onPress={() => { setEditingId(item.id); setNewExName(item.name); setNewSets(item.sets); setRepsArray(Array.isArray(item.reps) ? item.reps : [item.reps]); setNewGroupTitle(item.groupTitle || 'Main Lifts'); setModalVisible(true); }} style={styles.actionBtn}>
+                          <Ionicons name="pencil" size={18} color="#007AFF" />
+                        </TouchableOpacity>
+                        <TouchableOpacity onPress={() => {
+                           Alert.alert("Delete", "Remove exercise?", [
+                            { text: "Cancel", style: "cancel" },
+                            { text: "Delete", style: "destructive", onPress: async () => {
+                              const user = auth.currentUser;
+                              if (user) await deleteExerciseFromDate(user.uid, selectedStr, item.id);
+                            }}
+                          ]);
+                        }} style={styles.actionBtn}>
+                          <Ionicons name="trash" size={18} color="#FF3B30" />
+                        </TouchableOpacity>
+                      </View>
+                    )}
                   </View>
                 ))}
               </View>
@@ -196,21 +184,27 @@ export default function WorkoutsScreen() {
       </ScrollView>
 
       <View style={[styles.footer, { paddingBottom: insets.bottom + 15 }]}>
-        <TouchableOpacity style={styles.addExButton} onPress={() => setModalVisible(true)}>
-          <Ionicons name="add" size={20} color="#FFF" style={{marginRight: 10}} />
-          <Text style={styles.addExTitle}>Add Exercise</Text>
-        </TouchableOpacity>
-        {exercises.length > 0 && <TouchableOpacity style={styles.startLiftingButton} onPress={() => router.push('/(main)/active-workout')}><Text style={styles.startLiftingText}>Start Workout</Text></TouchableOpacity>}
+        {!isFinished ? (
+          <>
+            <TouchableOpacity style={styles.addExButton} onPress={() => setModalVisible(true)}>
+              <Text style={styles.addExTitle}>Add Exercise</Text>
+            </TouchableOpacity>
+            {exercises.length > 0 && (
+              <TouchableOpacity style={styles.startLiftingButton} onPress={() => router.push('/(main)/active-workout')}>
+                <Text style={styles.startLiftingText}>Start Workout</Text>
+              </TouchableOpacity>
+            )}
+          </>
+        ) : (
+          <View style={styles.finishedBtn}><Text style={styles.finishedBtnText}>Session Complete</Text></View>
+        )}
       </View>
 
       <Modal visible={modalVisible} animationType="slide" transparent={true}>
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>{editingId ? "Edit Exercise" : "New Exercise"}</Text>
-            
-            <Text style={styles.label}>Exercise Name</Text>
-            <TextInput style={styles.input} placeholder="Search or type..." value={newExName} onChangeText={handleNameChange} />
-            
+            <TextInput style={styles.input} placeholder="Exercise Name" value={newExName} onChangeText={handleNameChange} />
             {filteredSuggestions.length > 0 && (
               <View style={styles.suggestionsWrapper}>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false}>
@@ -222,48 +216,20 @@ export default function WorkoutsScreen() {
                 </ScrollView>
               </View>
             )}
-
-            {/* CUSTOM DROPDOWN SELECTOR FOR GROUP */}
-            <Text style={styles.label}>Workout Group</Text>
-            <TouchableOpacity 
-                style={styles.dropdownTrigger} 
-                onPress={() => {
-                    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-                    setShowGroupDropdown(!showGroupDropdown);
-                }}
-            >
-                <Text style={styles.dropdownTriggerText}>{newGroupTitle}</Text>
-                <Ionicons name={showGroupDropdown ? "chevron-up" : "chevron-down"} size={20} color="#666" />
-            </TouchableOpacity>
-
-            {showGroupDropdown && (
-                <View style={styles.dropdownContent}>
-                    {WORKOUT_GROUPS.map((g) => (
-                        <TouchableOpacity key={g} style={styles.dropdownOption} onPress={() => { setNewGroupTitle(g); setShowGroupDropdown(false); }}>
-                            <Text style={[styles.dropdownOptionText, newGroupTitle === g && { color: '#c62828', fontWeight: 'bold' }]}>{g}</Text>
-                            {newGroupTitle === g && <Ionicons name="checkmark" size={18} color="#c62828" />}
-                        </TouchableOpacity>
-                    ))}
-                </View>
-            )}
-
-            <Text style={styles.label}>Number of Sets</Text>
-            <TextInput style={styles.input} placeholder="e.g. 3" keyboardType="numeric" value={newSets} onChangeText={handleSetsChange} />
-            
-            {repsArray.length > 0 && (
-                <Text style={styles.label}>Reps per Set</Text>
-            )}
-            <View style={styles.repsGrid}>
-               {repsArray.map((r, i) => (
-                 <View key={i} style={styles.repBox}>
-                    <Text style={styles.repLabel}>Rep {i+1}</Text>
-                    <TextInput style={styles.repInput} keyboardType="numeric" value={r} onChangeText={(t) => { const a = [...repsArray]; a[i] = t; setRepsArray(a); }} />
-                 </View>
-               ))}
+            <TextInput style={styles.input} placeholder="Group" value={newGroupTitle} onChangeText={setNewGroupTitle} />
+            <View style={styles.suggestionsWrapper}>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                {QUICK_GROUPS.map(g => (
+                  <TouchableOpacity key={g} style={[styles.suggestionChip, newGroupTitle === g && { backgroundColor: '#c62828', borderColor: '#c62828' }]} onPress={() => setNewGroupTitle(g)}>
+                    <Text style={[styles.suggestionText, newGroupTitle === g && { color: '#FFF' }]}>{g}</Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
             </View>
-
-            <TouchableOpacity onPress={handleSave} style={styles.saveBtn}><Text style={styles.saveBtnText}>Save Exercise</Text></TouchableOpacity>
-            <TouchableOpacity onPress={closeModal} style={styles.cancelBtn}><Text style={{ color: '#666' }}>Cancel</Text></TouchableOpacity>
+            <TextInput style={styles.input} placeholder="Sets" keyboardType="numeric" value={newSets} onChangeText={handleSetsChange} />
+            <View style={styles.repsGrid}>{repsArray.map((r, i) => (<View key={i} style={styles.repBox}><Text style={styles.repLabel}>Rep {i+1}</Text><TextInput style={styles.repInput} keyboardType="numeric" value={r} placeholder="0" onChangeText={(t) => { const a = [...repsArray]; a[i] = t; setRepsArray(a); }} /></View>))}</View>
+            <TouchableOpacity onPress={handleSave} style={styles.saveBtn}><Text style={styles.saveBtnText}>Save</Text></TouchableOpacity>
+            <TouchableOpacity onPress={closeModal} style={styles.cancelBtn}><Text>Cancel</Text></TouchableOpacity>
           </View>
         </View>
       </Modal>
@@ -293,23 +259,16 @@ const styles = StyleSheet.create({
   actionRow: { flexDirection: 'row', gap: 10 },
   actionBtn: { padding: 5 },
   footer: { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: 'rgba(242,242,247,0.95)', paddingHorizontal: 20, paddingTop: 10, gap: 8 },
-  addExButton: { backgroundColor: '#c62828', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', padding: 12, borderRadius: 15 },
+  addExButton: { backgroundColor: '#c62828', padding: 12, borderRadius: 15, alignItems: 'center' },
   addExTitle: { color: '#FFF', fontSize: 16, fontWeight: 'bold' },
   startLiftingButton: { backgroundColor: '#000', height: 48, borderRadius: 12, justifyContent: 'center', alignItems: 'center' },
   startLiftingText: { color: '#FFF', fontWeight: 'bold' },
+  finishedBtn: { backgroundColor: '#34C759', height: 55, borderRadius: 15, justifyContent: 'center', alignItems: 'center' },
+  finishedBtnText: { color: '#FFF', fontWeight: 'bold', fontSize: 16 },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: 20 },
   modalContent: { backgroundColor: '#FFF', borderRadius: 20, padding: 25 },
   modalTitle: { fontSize: 20, fontWeight: 'bold', marginBottom: 20 },
-  label: { fontSize: 11, color: '#888', marginBottom: 6, fontWeight: '800', textTransform: 'uppercase' },
-  input: { backgroundColor: '#F2F2F7', padding: 12, borderRadius: 10, marginBottom: 15, fontSize: 16 },
-  
-  // DROPDOWN STYLES
-  dropdownTrigger: { backgroundColor: '#F2F2F7', padding: 12, borderRadius: 10, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15 },
-  dropdownTriggerText: { fontSize: 16, color: '#000' },
-  dropdownContent: { backgroundColor: '#FFF', borderRadius: 10, borderWidth: 1, borderColor: '#EEE', marginBottom: 15, overflow: 'hidden' },
-  dropdownOption: { padding: 12, borderBottomWidth: 1, borderBottomColor: '#F2F2F7', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  dropdownOptionText: { fontSize: 14, color: '#333' },
-
+  input: { backgroundColor: '#F2F2F7', padding: 12, borderRadius: 10, marginBottom: 10, fontSize: 16 },
   suggestionsWrapper: { marginBottom: 15, height: 35 },
   suggestionChip: { backgroundColor: '#FFEBEE', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, marginRight: 8, borderWidth: 1, borderColor: '#FFCDD2' },
   suggestionText: { color: '#c62828', fontSize: 12, fontWeight: '700' },

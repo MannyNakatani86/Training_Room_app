@@ -1,4 +1,10 @@
-import { arrayUnion, doc, getDoc, setDoc, updateDoc } from "firebase/firestore";
+import {
+  arrayUnion,
+  doc,
+  getDoc,
+  setDoc,
+  updateDoc
+} from "firebase/firestore";
 import { db } from '../fireBaseConfig';
 
 export interface Exercise {
@@ -6,12 +12,13 @@ export interface Exercise {
   name: string;
   sets: string;
   reps: string[];
-  groupTitle?: string; // Add this field
+  groupTitle?: string;
   loggedWeights?: string[];
   memo?: string;
   completedSetsCount?: number;
 }
 
+// 1. Add a new exercise to a specific date
 export const addExerciseToDate = async (userId: string, dateString: string, exercise: Exercise) => {
   const docRef = doc(db, "customers", userId, "workouts", dateString);
   try {
@@ -19,14 +26,16 @@ export const addExerciseToDate = async (userId: string, dateString: string, exer
     if (docSnap.exists()) {
       await updateDoc(docRef, { exercises: arrayUnion(exercise) });
     } else {
-      await setDoc(docRef, { exercises: [exercise], date: dateString });
+      await setDoc(docRef, { exercises: [exercise], date: dateString, isFinished: false });
     }
     return { success: true };
   } catch (error) {
+    console.error("Error adding exercise:", error);
     return { success: false, error };
   }
 };
 
+// 2. Delete an exercise
 export const deleteExerciseFromDate = async (userId: string, dateString: string, exerciseId: string) => {
   const docRef = doc(db, "customers", userId, "workouts", dateString);
   try {
@@ -42,6 +51,7 @@ export const deleteExerciseFromDate = async (userId: string, dateString: string,
   }
 };
 
+// 3. Update an existing exercise
 export const updateExerciseInDate = async (userId: string, dateString: string, updatedEx: Exercise) => {
   const docRef = doc(db, "customers", userId, "workouts", dateString);
   try {
