@@ -23,7 +23,6 @@ export default function HomeScreen() {
   const { fullName } = useUser();
   const router = useRouter();
   const [activeIndex, setActiveIndex] = useState(0);
-  // We now store the whole workout object to check isFinished
   const [workouts, setWorkouts] = useState<Record<string, any>>({});
 
   const getFormattedStr = (date: Date) => {
@@ -31,6 +30,8 @@ export default function HomeScreen() {
     const adjustedDate = new Date(date.getTime() - (offset * 60 * 1000));
     return adjustedDate.toISOString().split('T')[0];
   };
+
+  const todayStr = getFormattedStr(new Date());
 
   const workoutDays = Array.from({ length: 7 }).map((_, i) => {
     const date = new Date();
@@ -65,8 +66,7 @@ export default function HomeScreen() {
     const dayData = workouts[item.dateStr];
     const dayExercises: Exercise[] = dayData?.exercises || [];
     const isFinished = dayData?.isFinished || false;
-    const previewList = dayExercises.slice(0, 3);
-    const hasMore = dayExercises.length > 3;
+    const isFuture = item.dateStr > todayStr; // Check if the card is a future day
 
     return (
       <View style={styles.cardContainer}>
@@ -77,7 +77,7 @@ export default function HomeScreen() {
           {dayExercises.length > 0 ? (
             <View style={styles.contentWrapper}>
               <View style={styles.exercisePreviewArea}>
-                {previewList.map((ex, idx) => (
+                {dayExercises.slice(0, 3).map((ex, idx) => (
                   <View key={idx} style={styles.miniExerciseRow}>
                     <View style={[styles.redDot, isFinished && { backgroundColor: '#34C759' }]} />
                     <View style={{ flex: 1 }}>
@@ -88,16 +88,28 @@ export default function HomeScreen() {
                     </View>
                   </View>
                 ))}
-                {hasMore && <Text style={styles.moreIndicator}>+ {dayExercises.length - 3} more</Text>}
+                {dayExercises.length > 3 && <Text style={styles.moreIndicator}>+ {dayExercises.length - 3} more</Text>}
               </View>
 
+              {/* DYNAMIC BUTTON LOGIC */}
               {isFinished ? (
                 <View style={styles.completedBadge}>
                   <Text style={styles.completedBadgeText}>Session Complete</Text>
                   <Ionicons name="checkmark-circle" size={18} color="#FFF" />
                 </View>
+              ) : isFuture ? (
+                <TouchableOpacity 
+                  style={[styles.startWorkoutBtn, { backgroundColor: '#F2F2F7' }]} 
+                  onPress={() => router.push({ pathname: '/workouts', params: { date: item.dateStr } })}
+                >
+                  <Text style={[styles.startWorkoutBtnText, { color: '#000' }]}>Edit Workout</Text>
+                  <Ionicons name="pencil" size={16} color="#000" />
+                </TouchableOpacity>
               ) : (
-                <TouchableOpacity style={styles.startWorkoutBtn} onPress={() => router.push('/(main)/active-workout')}>
+                <TouchableOpacity 
+                  style={styles.startWorkoutBtn} 
+                  onPress={() => router.push('/(main)/active-workout')}
+                >
                   <Text style={styles.startWorkoutBtnText}>Start Workout</Text>
                   <Ionicons name="play" size={16} color="#FFF" />
                 </TouchableOpacity>
@@ -107,7 +119,12 @@ export default function HomeScreen() {
             <View style={styles.emptyContent}>
               <View style={styles.iconCircle}><Ionicons name="barbell-outline" size={32} color="#AAA" /></View>
               <Text style={styles.noWorkoutText}>No workout planned</Text>
-              <TouchableOpacity style={styles.planButton} onPress={() => router.push('/workouts')}><Text style={styles.planButtonText}>Plan Session</Text></TouchableOpacity>
+              <TouchableOpacity 
+                style={styles.planButton} 
+                onPress={() => router.push({ pathname: '/workouts', params: { date: item.dateStr } })}
+              >
+                <Text style={styles.planButtonText}>Plan Session</Text>
+              </TouchableOpacity>
             </View>
           )}
         </View>

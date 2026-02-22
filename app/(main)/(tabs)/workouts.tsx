@@ -1,18 +1,10 @@
 import { auth, db } from '@/fireBaseConfig';
 import { addExerciseToDate, deleteExerciseFromDate, Exercise, updateExerciseInDate } from '@/services/workoutService';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router'; // Added useLocalSearchParams
 import { doc, onSnapshot } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
-import {
-  Alert,
-  LayoutAnimation,
-  Modal,
-  Platform,
-  ScrollView, StyleSheet, Text, TextInput, TouchableOpacity,
-  UIManager,
-  View
-} from 'react-native';
+import { Alert, LayoutAnimation, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, UIManager, View } from 'react-native';
 import { Calendar } from 'react-native-calendars';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -21,10 +13,12 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
 }
 
 const DEFAULT_EXERCISES = ["Bench Press", "Back Squat", "Front Squat", "Incline Bench Press", "Deadlift", "Clean", "Snatch", "Hang Clean", "Hang Snatch", "Block Clean", "Block Snatch", "Push Press", "Power Jerk", "Split Jerk", "Trap Bar Deadlift"];
+const GROUP_ORDER = ["Primer", "Main Lifts", "Power Movements", "Accessories"];
 const QUICK_GROUPS = ["Primer", "Power Movements", "Main Lifts", "Accessories"];
 
 export default function WorkoutsScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams(); // 1. Listen for incoming date params
   const insets = useSafeAreaInsets();
   
   const [isExpanded, setIsExpanded] = useState(false);
@@ -50,6 +44,14 @@ export default function WorkoutsScreen() {
   const selectedStr = getFormattedStr(selectedDate);
   const todayStr = getFormattedStr(new Date());
 
+  // 2. EFFECT: If a date is passed from Home Screen, update the selection
+  useEffect(() => {
+    if (params.date && typeof params.date === 'string') {
+      const [y, m, d] = params.date.split('-').map(Number);
+      setSelectedDate(new Date(y, m - 1, d));
+    }
+  }, [params.date]);
+
   useEffect(() => {
     const user = auth.currentUser;
     if (!user) return;
@@ -59,8 +61,7 @@ export default function WorkoutsScreen() {
         setExercises(data.exercises || []);
         setIsFinished(data.isFinished || false);
       } else {
-        setExercises([]);
-        setIsFinished(false);
+        setExercises([]); setIsFinished(false);
       }
     });
   }, [selectedStr]);
@@ -78,9 +79,7 @@ export default function WorkoutsScreen() {
     if (text.trim().length > 0) {
       const filtered = DEFAULT_EXERCISES.filter(ex => ex.toLowerCase().includes(text.toLowerCase()));
       setFilteredSuggestions(filtered);
-    } else {
-      setFilteredSuggestions([]);
-    }
+    } else { setFilteredSuggestions([]); }
   };
 
   const handleSetsChange = (val: string) => {
@@ -95,7 +94,7 @@ export default function WorkoutsScreen() {
     if (!newExName || !newSets || repsArray.some(r => r === '')) return Alert.alert("Error", "Fill all fields");
     const user = auth.currentUser;
     if (user) {
-      const data: Exercise = { id: editingId || Date.now().toString(), name: newExName, sets: newSets, reps: repsArray, groupTitle: newGroupTitle || "General" };
+      const data: Exercise = { id: editingId || Date.now().toString(), name: newExName, sets: newSets, reps: repsArray, groupTitle: newGroupTitle || "Main Lifts" };
       const res = editingId ? await updateExerciseInDate(user.uid, selectedStr, data) : await addExerciseToDate(user.uid, selectedStr, data);
       if (res.success) closeModal();
     }
@@ -108,11 +107,17 @@ export default function WorkoutsScreen() {
   };
 
   const groupedExercises = exercises.reduce((groups: { [key: string]: Exercise[] }, ex) => {
-    const title = ex.groupTitle || "General";
+    const title = ex.groupTitle || "Accessories";
     if (!groups[title]) groups[title] = [];
     groups[title].push(ex);
     return groups;
   }, {});
+
+  const sortedGroupNames = Object.keys(groupedExercises).sort((a, b) => {
+    const indexA = GROUP_ORDER.indexOf(a);
+    const indexB = GROUP_ORDER.indexOf(b);
+    return (indexA === -1 ? 99 : indexA) - (indexB === -1 ? 99 : indexB);
+  });
 
   return (
     <View style={styles.container}>
@@ -143,42 +148,25 @@ export default function WorkoutsScreen() {
 
         <View style={styles.previewSection}>
           <Text style={styles.sectionHeader}>{selectedStr === todayStr ? "Today's Plan" : `Plan for ${selectedDate.toDateString()}`}</Text>
-          
-          {Object.keys(groupedExercises).length === 0 ? (
-            <View style={styles.emptyContainer}><Text style={styles.emptyText}>No exercises planned.</Text></View>
-          ) : (
-            Object.keys(groupedExercises).map((groupName) => (
-              <View key={groupName} style={styles.groupWrapper}>
-                <Text style={styles.groupTitleText}>{groupName.toUpperCase()}</Text>
-                {(groupedExercises[groupName] || []).map((item) => (
-                  <View key={item.id} style={styles.exerciseRow}>
-                    <View style={styles.exerciseInfo}>
-                      <Text style={[styles.exerciseName, isFinished && { color: '#888' }]}>{item.name}</Text>
-                      <Text style={styles.exerciseMeta}>{item.sets} Sets • {Array.isArray(item.reps) ? item.reps.join(', ') : item.reps} Reps</Text>
-                    </View>
-                    {!isFinished && (
-                      <View style={styles.actionRow}>
-                        <TouchableOpacity onPress={() => { setEditingId(item.id); setNewExName(item.name); setNewSets(item.sets); setRepsArray(Array.isArray(item.reps) ? item.reps : [item.reps]); setNewGroupTitle(item.groupTitle || 'Main Lifts'); setModalVisible(true); }} style={styles.actionBtn}>
-                          <Ionicons name="pencil" size={18} color="#007AFF" />
-                        </TouchableOpacity>
-                        <TouchableOpacity onPress={() => {
-                           Alert.alert("Delete", "Remove exercise?", [
-                            { text: "Cancel", style: "cancel" },
-                            { text: "Delete", style: "destructive", onPress: async () => {
-                              const user = auth.currentUser;
-                              if (user) await deleteExerciseFromDate(user.uid, selectedStr, item.id);
-                            }}
-                          ]);
-                        }} style={styles.actionBtn}>
-                          <Ionicons name="trash" size={18} color="#FF3B30" />
-                        </TouchableOpacity>
-                      </View>
-                    )}
+          {sortedGroupNames.map((groupName) => (
+            <View key={groupName} style={styles.groupWrapper}>
+              <Text style={styles.groupTitleText}>{groupName.toUpperCase()}</Text>
+              {groupedExercises[groupName].map((item) => (
+                <View key={item.id} style={styles.exerciseRow}>
+                  <View style={styles.exerciseInfo}>
+                    <Text style={[styles.exerciseName, isFinished && { color: '#888' }]}>{item.name}</Text>
+                    <Text style={styles.exerciseMeta}>{item.sets} Sets • {Array.isArray(item.reps) ? item.reps.join(', ') : item.reps} Reps</Text>
                   </View>
-                ))}
-              </View>
-            ))
-          )}
+                  {!isFinished && (
+                    <View style={styles.actionRow}>
+                      <TouchableOpacity onPress={() => { setEditingId(item.id); setNewExName(item.name); setNewSets(item.sets); setRepsArray(Array.isArray(item.reps) ? item.reps : [item.reps]); setNewGroupTitle(item.groupTitle || 'Main Lifts'); setModalVisible(true); }} style={styles.actionBtn}><Ionicons name="pencil" size={18} color="#007AFF" /></TouchableOpacity>
+                      <TouchableOpacity onPress={() => { Alert.alert("Delete", "Remove exercise?", [{ text: "Cancel" }, { text: "Delete", style: "destructive", onPress: async () => { const user = auth.currentUser; if (user) await deleteExerciseFromDate(user.uid, selectedStr, item.id); }}]); }} style={styles.actionBtn}><Ionicons name="trash" size={18} color="#FF3B30" /></TouchableOpacity>
+                    </View>
+                  )}
+                </View>
+              ))}
+            </View>
+          ))}
         </View>
         <View style={{ height: 200 }} />
       </ScrollView>
@@ -189,7 +177,7 @@ export default function WorkoutsScreen() {
             <TouchableOpacity style={styles.addExButton} onPress={() => setModalVisible(true)}>
               <Text style={styles.addExTitle}>Add Exercise</Text>
             </TouchableOpacity>
-            {exercises.length > 0 && (
+            {exercises.length > 0 && selectedStr === todayStr && (
               <TouchableOpacity style={styles.startLiftingButton} onPress={() => router.push('/(main)/active-workout')}>
                 <Text style={styles.startLiftingText}>Start Workout</Text>
               </TouchableOpacity>

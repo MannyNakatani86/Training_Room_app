@@ -21,6 +21,7 @@ export default function LogExerciseScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   
+  // 1. Params passed from Active Workout list
   const { exerciseId, exerciseName, sets } = useLocalSearchParams<{ 
     exerciseId: string; 
     exerciseName: string; 
@@ -28,10 +29,11 @@ export default function LogExerciseScreen() {
   }>();
   
   const [weights, setWeights] = useState<string[]>([]);
-  const [repsArray, setRepsArray] = useState<string[]>([]); // This is the fix
+  const [repsArray, setRepsArray] = useState<string[]>([]);
   const [memo, setMemo] = useState('');
   const [loading, setLoading] = useState(true);
 
+  // Timezone-safe date helper
   const getFormattedStr = (date: Date) => {
     const offset = date.getTimezoneOffset();
     const adjustedDate = new Date(date.getTime() - (offset * 60 * 1000));
@@ -51,7 +53,7 @@ export default function LogExerciseScreen() {
         
         const numSets = parseInt(sets || '0');
         let initialWeights = new Array(numSets).fill('');
-        let targetReps = new Array(numSets).fill('0'); // Default targets
+        let targetReps = new Array(numSets).fill('0');
         let initialMemo = '';
 
         if (docSnap.exists()) {
@@ -59,11 +61,9 @@ export default function LogExerciseScreen() {
           const currentEx = exercises.find((e) => e.id === exerciseId);
           
           if (currentEx) {
-            // Load weights if they were already started
             if (currentEx.loggedWeights && currentEx.loggedWeights.length > 0) {
               initialWeights = currentEx.loggedWeights;
             }
-            // Load the dynamic reps array from Firestore
             if (currentEx.reps && Array.isArray(currentEx.reps)) {
               targetReps = currentEx.reps;
             }
@@ -72,7 +72,7 @@ export default function LogExerciseScreen() {
         }
         
         setWeights(initialWeights);
-        setRepsArray(targetReps); // Save targets to state
+        setRepsArray(targetReps);
         setMemo(initialMemo);
       } catch (error) {
         console.error("Error loading data:", error);
@@ -83,6 +83,13 @@ export default function LogExerciseScreen() {
 
     loadCurrentData();
   }, [exerciseId, sets]);
+
+  // --- NEW FEATURE: FILL ALL WEIGHTS ---
+  const fillAllWeights = () => {
+    const firstWeight = weights[0];
+    if (!firstWeight) return; 
+    setWeights(new Array(weights.length).fill(firstWeight));
+  };
 
   const saveAndGoBack = async () => {
     const user = auth.currentUser;
@@ -110,8 +117,11 @@ export default function LogExerciseScreen() {
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
+      {/* HEADER */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()}><Ionicons name="chevron-back" size={28} color="#000" /></TouchableOpacity>
+        <TouchableOpacity onPress={() => router.back()}>
+          <Ionicons name="chevron-back" size={28} color="#000" />
+        </TouchableOpacity>
         <Text style={styles.headerTitle}>LOG SESSION</Text>
         <View style={{ width: 28 }} />
       </View>
@@ -122,29 +132,39 @@ export default function LogExerciseScreen() {
           <Text style={styles.exerciseTitle}>{exerciseName}</Text>
           <Text style={styles.targetText}>{sets} Sets Planned</Text>
 
+          {/* ACTION BUTTONS */}
           <View style={styles.actionButtons}>
-            <TouchableOpacity style={styles.actionBtn}><Ionicons name="videocam" size={20} color="#FFF" /><Text style={styles.actionBtnText}>Video</Text></TouchableOpacity>
+            <TouchableOpacity style={styles.actionBtn}>
+              <Ionicons name="videocam" size={20} color="#FFF" />
+              <Text style={styles.actionBtnText}>Video</Text>
+            </TouchableOpacity>
             <TouchableOpacity 
               style={[styles.actionBtn, { backgroundColor: '#000' }]}
-              onPress={() => router.push({ pathname: '/(main)/exercise-history', params: { exerciseName: exerciseName as string } })}
+              onPress={() => router.push({ 
+                pathname: '/(main)/exercise-history', 
+                params: { exerciseName: exerciseName as string } 
+              })}
             >
-              <Ionicons name="time" size={20} color="#FFF" /><Text style={styles.actionBtnText}>History</Text>
+              <Ionicons name="time" size={20} color="#FFF" />
+              <Text style={styles.actionBtnText}>History</Text>
             </TouchableOpacity>
           </View>
 
+          {/* WEIGHT LOGGING SECTION */}
           <View style={styles.section}>
-            <Text style={styles.label}>MEMO / NOTES</Text>
-            <TextInput style={styles.memoInput} placeholder="How did it feel?..." multiline value={memo} onChangeText={setMemo} />
-          </View>
+            <View style={styles.labelRow}>
+                <Text style={styles.label}>LOG YOUR SETS (KG)</Text>
+                {/* THE "ALL" BUTTON */}
+                <TouchableOpacity style={styles.allBtn} onPress={fillAllWeights}>
+                    <Text style={styles.allBtnText}>USE SET 1 FOR ALL</Text>
+                </TouchableOpacity>
+            </View>
 
-          <View style={styles.section}>
-            <Text style={styles.label}>LOG YOUR SETS (KG)</Text>
             {weights.map((w, index) => (
               <View key={index} style={styles.setRow}>
                 <View>
                   <Text style={styles.setLabel}>SET {index + 1}</Text>
-                  {/* Now using the repsArray from state */}
-                  <Text style={styles.targetRepsLabel}>Target: {repsArray[index] || sets} reps</Text>
+                  <Text style={styles.targetRepsLabel}>Target: {repsArray[index] || '0'} reps</Text>
                 </View>
                 <TextInput 
                   style={styles.weightInput}
@@ -160,6 +180,19 @@ export default function LogExerciseScreen() {
               </View>
             ))}
           </View>
+
+          {/* MEMO SECTION */}
+          <View style={styles.section}>
+            <Text style={styles.label}>MEMO / NOTES</Text>
+            <TextInput 
+              style={styles.memoInput} 
+              placeholder="How did it feel?..." 
+              multiline 
+              value={memo} 
+              onChangeText={setMemo} 
+            />
+          </View>
+          
           <View style={{ height: 100 }} />
         </ScrollView>
       </KeyboardAvoidingView>
@@ -181,16 +214,24 @@ const styles = StyleSheet.create({
   scrollContent: { padding: 25 },
   exerciseTitle: { fontSize: 32, fontWeight: '900', color: '#000' },
   targetText: { fontSize: 16, color: '#666', marginTop: 5, marginBottom: 25 },
+  
   actionButtons: { flexDirection: 'row', gap: 10, marginBottom: 30 },
   actionBtn: { flex: 1, backgroundColor: '#c62828', flexDirection: 'row', justifyContent: 'center', alignItems: 'center', padding: 12, borderRadius: 12, gap: 8 },
   actionBtnText: { color: '#FFF', fontWeight: 'bold' },
+
   section: { marginBottom: 30 },
-  label: { fontSize: 12, fontWeight: '800', color: '#AAA', marginBottom: 10, letterSpacing: 1 },
-  memoInput: { backgroundColor: '#F9F9FB', borderRadius: 15, padding: 15, minHeight: 80, fontSize: 16, color: '#333', textAlignVertical: 'top', borderWidth: 1, borderColor: '#EEE' },
+  labelRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15 },
+  label: { fontSize: 12, fontWeight: '800', color: '#AAA', letterSpacing: 1 },
+  allBtn: { backgroundColor: '#F2F2F7', paddingVertical: 4, paddingHorizontal: 10, borderRadius: 6 },
+  allBtnText: { fontSize: 10, fontWeight: 'bold', color: '#c62828' },
+  
+  memoInput: { backgroundColor: '#F9F9FB', borderRadius: 15, padding: 15, minHeight: 80, fontSize: 16, textAlignVertical: 'top', borderWidth: 1, borderColor: '#EEE' },
+  
   setRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#F2F2F7' },
-  setLabel: { fontSize: 16, fontWeight: '700', color: '#000' },
+  setLabel: { fontSize: 16, fontWeight: '700' },
   targetRepsLabel: { fontSize: 12, color: '#c62828', fontWeight: '600', marginTop: 2 },
   weightInput: { backgroundColor: '#F2F2F7', width: 80, padding: 10, borderRadius: 10, textAlign: 'center', fontSize: 18, fontWeight: 'bold' },
+  
   footer: { padding: 20, borderTopWidth: 1, borderTopColor: '#F2F2F7', backgroundColor: '#FFF' },
   saveBtn: { backgroundColor: '#c62828', height: 60, borderRadius: 20, justifyContent: 'center', alignItems: 'center' },
   saveBtnText: { color: '#FFF', fontSize: 18, fontWeight: 'bold' },

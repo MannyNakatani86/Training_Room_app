@@ -98,7 +98,7 @@ export default function LoginScreen() {
           style={styles.logo}
           resizeMode="contain"
         />
-        <Text style={styles.slogan}>Maybe our slogan here?</Text>
+        <Text style={styles.slogan}>{"Athlete-Built.\n Performace-Driven"}</Text>
       </View>
 
       {/* 2. INITIAL BUTTONS AT BOTTOM */}
@@ -225,11 +225,13 @@ const styles = StyleSheet.create({
     height: 300,
   },
   slogan: {
-    fontSize: 26,
+    fontSize: 30,
     fontWeight: '900',
     letterSpacing: 2,
     color: '#ffffff',
     marginTop: 10,
+    textAlign: 'center',
+    lineHeight: 32
   },
   buttonContainer: {
     paddingHorizontal: 40,
