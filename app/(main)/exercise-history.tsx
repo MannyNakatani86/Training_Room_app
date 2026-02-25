@@ -17,7 +17,8 @@ interface HistoryEntry {
   date: string;
   weights: string[];
   sets: string;
-  reps: any; // Can be string or string[]
+  reps: any;
+  memo?: string; // Added memo to interface
 }
 
 export default function ExerciseHistoryScreen() {
@@ -53,7 +54,8 @@ export default function ExerciseHistoryScreen() {
                 date: doc.id,
                 weights: match.loggedWeights || [],
                 sets: match.sets,
-                reps: match.reps
+                reps: match.reps,
+                memo: match.memo || '' // Fetch the memo
               });
             }
           }
@@ -70,16 +72,14 @@ export default function ExerciseHistoryScreen() {
     fetchHistory();
   }, [exerciseName]);
 
-  if (loading) {
-    return <View style={styles.loadingContainer}><ActivityIndicator size="large" color="#c62828" /></View>;
-  }
+  if (loading) return <View style={styles.center}><ActivityIndicator size="large" color="#c62828" /></View>;
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}><Ionicons name="chevron-back" size={26} color="#000" /></TouchableOpacity>
         <View style={styles.headerTitleContainer}>
-          <Text style={styles.headerSubtitle}>Progress Tracking</Text>
+          <Text style={styles.headerSubtitle}>Exercise History</Text>
           <Text style={styles.headerTitle} numberOfLines={1}>{exerciseName}</Text>
         </View>
         <View style={{ width: 40 }} />
@@ -94,7 +94,6 @@ export default function ExerciseHistoryScreen() {
             <View style={styles.cardHeader}>
               <Text style={styles.dateText}>{formatDateSafe(item.date)}</Text>
               <View style={styles.badge}>
-                {/* FIX: Join the reps array with commas */}
                 <Text style={styles.badgeText}>
                   {item.sets}x{Array.isArray(item.reps) ? item.reps.join(', ') : item.reps}
                 </Text>
@@ -102,17 +101,21 @@ export default function ExerciseHistoryScreen() {
             </View>
             
             <View style={styles.weightContainer}>
-              {item.weights.length > 0 ? (
-                item.weights.map((w, idx) => (
-                  <View key={idx} style={styles.weightBox}>
-                    <Text style={styles.weightLabel}>Set {idx + 1}</Text>
-                    <Text style={styles.weightValue}>{w || '-'}<Text style={styles.unitText}>kg</Text></Text>
-                  </View>
-                ))
-              ) : (
-                <Text style={styles.noDataText}>No weights recorded.</Text>
-              )}
+              {item.weights.map((w, idx) => (
+                <View key={idx} style={styles.weightBox}>
+                  <Text style={styles.weightLabel}>Set {idx + 1}</Text>
+                  <Text style={styles.weightValue}>{w || '-'}<Text style={styles.unitText}>kg</Text></Text>
+                </View>
+              ))}
             </View>
+
+            {/* DISPLAY THE HISTORICAL MEMO */}
+            {item.memo ? (
+              <View style={styles.memoBox}>
+                <Ionicons name="document-text-outline" size={14} color="#8E8E93" />
+                <Text style={styles.memoText}>{item.memo}</Text>
+              </View>
+            ) : null}
           </View>
         )}
       />
@@ -122,7 +125,7 @@ export default function ExerciseHistoryScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F2F2F7' },
-  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 15, paddingVertical: 15, backgroundColor: '#FFF', borderBottomWidth: 1, borderBottomColor: '#EEE' },
   headerTitleContainer: { flex: 1, alignItems: 'center' },
   headerSubtitle: { fontSize: 10, color: '#888', fontWeight: 'bold', textTransform: 'uppercase' },
@@ -134,10 +137,11 @@ const styles = StyleSheet.create({
   dateText: { fontSize: 15, fontWeight: '700', color: '#333' },
   badge: { backgroundColor: '#FFEBEE', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 },
   badgeText: { color: '#c62828', fontSize: 12, fontWeight: 'bold' },
-  weightContainer: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  weightContainer: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 10 },
   weightBox: { backgroundColor: '#F9F9FB', padding: 10, borderRadius: 12, minWidth: 70, alignItems: 'center', borderWidth: 1, borderColor: '#F0F0F0' },
-  weightLabel: { fontSize: 10, color: '#AAA', fontWeight: 'bold', marginBottom: 2 },
+  weightLabel: { fontSize: 10, color: '#AAA', fontWeight: 'bold' },
   weightValue: { fontSize: 16, fontWeight: '900', color: '#000' },
   unitText: { fontSize: 10, color: '#888', marginLeft: 2 },
-  noDataText: { color: '#BBB', fontSize: 13, fontStyle: 'italic' },
+  memoBox: { marginTop: 10, padding: 12, backgroundColor: '#F9F9FB', borderRadius: 10, flexDirection: 'row', gap: 8, borderLeftWidth: 3, borderLeftColor: '#EEE' },
+  memoText: { fontSize: 13, color: '#666', fontStyle: 'italic', flex: 1 }
 });

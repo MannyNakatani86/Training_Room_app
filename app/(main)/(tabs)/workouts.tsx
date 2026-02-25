@@ -1,12 +1,14 @@
 import { auth, db } from '@/fireBaseConfig';
-import { addExerciseToDate, Exercise, updateExerciseInDate } from '@/services/workoutService';
+import { addExerciseToDate, deleteExerciseFromDate, Exercise, updateExerciseInDate } from '@/services/workoutService';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { doc, onSnapshot, updateDoc } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
-import { Alert, LayoutAnimation, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, UIManager, View } from 'react-native';
+import { Alert, Dimensions, LayoutAnimation, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, UIManager, View } from 'react-native';
 import { Calendar } from 'react-native-calendars';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+const { width } = Dimensions.get('window');
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -29,6 +31,7 @@ export default function WorkoutsScreen() {
   const [weekDates, setWeekDates] = useState<Date[]>([]);
 
   const [modalVisible, setModalVisible] = useState(false);
+  const [redoModalVisible, setRedoModalVisible] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [newExName, setNewExName] = useState('');
   const [newGroupTitle, setNewGroupTitle] = useState('Main Lifts');
@@ -75,25 +78,13 @@ export default function WorkoutsScreen() {
     }));
   }, [selectedDate]);
 
-  // --- NEW: REDO LOGIC ---
-  const handleRedoSession = () => {
-    Alert.alert(
-      "Unlock Session?",
-      "Would you like to edit or resume this completed session?",
-      [
-        { text: "Cancel", style: "cancel" },
-        { 
-          text: "Yes, Unlock", 
-          onPress: async () => {
-            const user = auth.currentUser;
-            if (user) {
-              await updateDoc(doc(db, "customers", user.uid, "workouts", selectedStr), { isFinished: false });
-              if (selectedStr === todayStr) router.push('/(main)/active-workout');
-            }
-          } 
-        }
-      ]
-    );
+  const executeUnlock = async () => {
+    const user = auth.currentUser;
+    if (user) {
+      await updateDoc(doc(db, "customers", user.uid, "workouts", selectedStr), { isFinished: false });
+      setRedoModalVisible(false);
+      if (selectedStr === todayStr) router.push('/(main)/active-workout');
+    }
   };
 
   const handleNameChange = (text: string) => {
@@ -119,6 +110,16 @@ export default function WorkoutsScreen() {
       const res = editingId ? await updateExerciseInDate(user.uid, selectedStr, data) : await addExerciseToDate(user.uid, selectedStr, data);
       if (res.success) closeModal();
     }
+  };
+
+  const confirmDelete = (id: string) => {
+    Alert.alert("Delete", "Remove this exercise?", [
+      { text: "Cancel", style: "cancel" },
+      { text: "Delete", style: "destructive", onPress: async () => {
+        const user = auth.currentUser;
+        if (user) await deleteExerciseFromDate(user.uid, selectedStr, id);
+      }}
+    ]);
   };
 
   const closeModal = () => {
@@ -179,7 +180,14 @@ export default function WorkoutsScreen() {
                     <Text style={styles.exerciseMeta}>{item.sets} Sets • {Array.isArray(item.reps) ? item.reps.join(', ') : item.reps} Reps</Text>
                   </View>
                   {!isFinished && (
-                    <TouchableOpacity onPress={() => { setEditingId(item.id); setNewExName(item.name); setNewSets(item.sets); setRepsArray(Array.isArray(item.reps) ? item.reps : [item.reps]); setNewGroupTitle(item.groupTitle || 'Main Lifts'); setModalVisible(true); }} style={styles.actionBtn}><Ionicons name="pencil" size={18} color="#007AFF" /></TouchableOpacity>
+                    <View style={styles.actionRow}>
+                      <TouchableOpacity onPress={() => { setEditingId(item.id); setNewExName(item.name); setNewSets(item.sets); setRepsArray(Array.isArray(item.reps) ? item.reps : [item.reps]); setNewGroupTitle(item.groupTitle || 'Main Lifts'); setModalVisible(true); }} style={styles.actionBtn}>
+                        <Ionicons name="pencil" size={18} color="#007AFF" />
+                      </TouchableOpacity>
+                      <TouchableOpacity onPress={() => confirmDelete(item.id)} style={styles.actionBtn}>
+                        <Ionicons name="trash" size={18} color="#FF3B30" />
+                      </TouchableOpacity>
+                    </View>
                   )}
                 </View>
               ))}
@@ -200,17 +208,29 @@ export default function WorkoutsScreen() {
             )}
           </>
         ) : (
-          <TouchableOpacity style={styles.finishedBtn} onPress={handleRedoSession}>
+          <TouchableOpacity style={styles.finishedBtn} onPress={() => setRedoModalVisible(true)}>
             <Text style={styles.finishedBtnText}>Session Complete</Text>
             <Ionicons name="refresh" size={18} color="#FFF" />
           </TouchableOpacity>
         )}
       </View>
 
+      <Modal visible={redoModalVisible} animationType="fade" transparent={true}>
+        <View style={styles.centerModalOverlay}>
+          <View style={styles.confirmBox}>
+            <View style={styles.confirmIconCircle}><Ionicons name="refresh" size={40} color="#c62828" /></View>
+            <Text style={styles.confirmTitle}>Unlock Session?</Text>
+            <Text style={styles.confirmSubtitle}>Would you like to redo or edit this completed session?</Text>
+            <TouchableOpacity style={styles.confirmFinishBtn} onPress={executeUnlock}><Text style={styles.confirmFinishText}>Yes, Unlock</Text></TouchableOpacity>
+            <TouchableOpacity style={{ marginTop: 15 }} onPress={() => setRedoModalVisible(false)}><Text style={{ color: '#666', fontWeight: '600' }}>CANCEL</Text></TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
       <Modal visible={modalVisible} animationType="slide" transparent={true}>
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Plan Exercise</Text>
+            <Text style={styles.modalTitle}>{editingId ? "Edit Exercise" : "New Exercise"}</Text>
             <TextInput style={styles.input} placeholder="Exercise Name" value={newExName} onChangeText={handleNameChange} />
             <TextInput style={styles.input} placeholder="Group" value={newGroupTitle} onChangeText={setNewGroupTitle} />
             <View style={styles.suggestionsWrapper}><ScrollView horizontal showsHorizontalScrollIndicator={false}>{QUICK_GROUPS.map(g => (<TouchableOpacity key={g} style={[styles.suggestionChip, newGroupTitle === g && { backgroundColor: '#c62828', borderColor: '#c62828' }]} onPress={() => setNewGroupTitle(g)}><Text style={[styles.suggestionText, newGroupTitle === g && { color: '#FFF' }]}>{g}</Text></TouchableOpacity>))}</ScrollView></View>
@@ -244,7 +264,11 @@ const styles = StyleSheet.create({
   exerciseInfo: { flex: 1 },
   exerciseName: { fontSize: 16, fontWeight: 'bold' },
   exerciseMeta: { fontSize: 14, color: '#666', marginTop: 2 },
+  
+  // FIXED: Restored action styles
+  actionRow: { flexDirection: 'row', gap: 10 },
   actionBtn: { padding: 5 },
+
   footer: { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: 'rgba(242,242,247,0.95)', paddingHorizontal: 20, paddingTop: 10, gap: 8 },
   addExButton: { backgroundColor: '#c62828', padding: 12, borderRadius: 15, alignItems: 'center' },
   addExTitle: { color: '#FFF', fontSize: 16, fontWeight: 'bold' },
@@ -252,6 +276,13 @@ const styles = StyleSheet.create({
   startLiftingText: { color: '#FFF', fontWeight: 'bold' },
   finishedBtn: { backgroundColor: '#34C759', height: 55, borderRadius: 15, justifyContent: 'center', alignItems: 'center', flexDirection: 'row', gap: 10 },
   finishedBtnText: { color: '#FFF', fontWeight: 'bold', fontSize: 16 },
+  centerModalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 30 },
+  confirmBox: { backgroundColor: '#FFF', borderRadius: 25, width: width - 60, padding: 25, alignItems: 'center' },
+  confirmIconCircle: { width: 80, height: 80, borderRadius: 40, backgroundColor: '#FFEBEE', justifyContent: 'center', alignItems: 'center', marginBottom: 20 },
+  confirmTitle: { fontSize: 22, fontWeight: 'bold', marginBottom: 10 },
+  confirmSubtitle: { fontSize: 15, color: '#666', textAlign: 'center', marginBottom: 25 },
+  confirmFinishBtn: { backgroundColor: '#c62828', width: '100%', padding: 18, borderRadius: 15, alignItems: 'center' },
+  confirmFinishText: { color: '#FFF', fontWeight: 'bold' },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: 20 },
   modalContent: { backgroundColor: '#FFF', borderRadius: 20, padding: 25 },
   modalTitle: { fontSize: 20, fontWeight: 'bold', marginBottom: 20 },

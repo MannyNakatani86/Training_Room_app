@@ -6,9 +6,9 @@ import { useRouter } from 'expo-router';
 import { doc, onSnapshot, updateDoc } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
 import {
-  Alert,
   Dimensions,
   FlatList,
+  Modal,
   NativeScrollEvent,
   NativeSyntheticEvent,
   ScrollView,
@@ -26,9 +26,11 @@ export default function HomeScreen() {
   const router = useRouter();
   const [activeIndex, setActiveIndex] = useState(0);
   const [workouts, setWorkouts] = useState<Record<string, any>>({});
-  
-  // FIXED: Restored missing state for the Onboarding Modal
   const [isModalVisible, setIsModalVisible] = useState(false);
+
+  // Redo Modal States
+  const [redoModalVisible, setRedoModalVisible] = useState(false);
+  const [selectedRedoDate, setSelectedRedoDate] = useState('');
 
   const getFormattedStr = (date: Date) => {
     const offset = date.getTimezoneOffset();
@@ -54,41 +56,28 @@ export default function HomeScreen() {
     if (!user) return;
     const unsubs = workoutDays.map((day) => {
       return onSnapshot(doc(db, "customers", user.uid, "workouts", day.dateStr), (docSnap) => {
-        setWorkouts(prev => ({ 
-          ...prev, 
-          [day.dateStr]: docSnap.exists() ? docSnap.data() : null 
-        }));
+        setWorkouts(prev => ({ ...prev, [day.dateStr]: docSnap.exists() ? docSnap.data() : null }));
       });
     });
     return () => unsubs.forEach(unsub => unsub());
   }, []);
 
-  // --- REDO LOGIC ---
-  const handleRedoSession = (dateStr: string) => {
-    Alert.alert(
-      "Unlock Session?",
-      "Would you like to redo or edit this completed session?",
-      [
-        { text: "Cancel", style: "cancel" },
-        { 
-          text: "Yes, Unlock", 
-          onPress: async () => {
-            const user = auth.currentUser;
-            if (user) {
-              await updateDoc(doc(db, "customers", user.uid, "workouts", dateStr), { 
-                isFinished: false 
-              });
-              // Only push to active-workout if it's actually today's session
-              if (dateStr === todayStr) {
-                router.push('/(main)/active-workout');
-              } else {
-                router.push({ pathname: '/workouts', params: { date: dateStr } });
-              }
-            }
-          } 
-        }
-      ]
-    );
+  const triggerRedoPopup = (dateStr: string) => {
+    setSelectedRedoDate(dateStr);
+    setRedoModalVisible(true);
+  };
+
+  const executeUnlock = async () => {
+    const user = auth.currentUser;
+    if (user && selectedRedoDate) {
+      await updateDoc(doc(db, "customers", user.uid, "workouts", selectedRedoDate), { isFinished: false });
+      setRedoModalVisible(false);
+      if (selectedRedoDate === todayStr) {
+        router.push('/(main)/active-workout');
+      } else {
+        router.push({ pathname: '/workouts', params: { date: selectedRedoDate } });
+      }
+    }
   };
 
   const handleScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
@@ -104,9 +93,7 @@ export default function HomeScreen() {
 
     return (
       <View style={styles.cardContainer}>
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitleText}>{item.dateLabel} • {item.fullDate}</Text>
-        </View>
+        <View style={styles.sectionHeader}><Text style={styles.sectionTitleText}>{item.dateLabel} • {item.fullDate}</Text></View>
         <View style={styles.workoutCardFixed}>
           {dayExercises.length > 0 ? (
             <View style={styles.contentWrapper}>
@@ -116,36 +103,24 @@ export default function HomeScreen() {
                     <View style={[styles.redDot, isFinished && { backgroundColor: '#34C759' }]} />
                     <View style={{ flex: 1 }}>
                       <Text style={[styles.miniExName, isFinished && { color: '#888' }]} numberOfLines={1}>{ex.name}</Text>
-                      <Text style={styles.miniExMeta}>
-                        {ex.sets} Sets • {Array.isArray(ex.reps) ? ex.reps.join(', ') : ex.reps} Reps
-                      </Text>
+                      <Text style={styles.miniExMeta}>{ex.sets} Sets • {Array.isArray(ex.reps) ? ex.reps.join(', ') : ex.reps} Reps</Text>
                     </View>
                   </View>
                 ))}
-                {dayExercises.length > 3 && <Text style={styles.moreIndicator}>+ {dayExercises.length - 3} more</Text>}
               </View>
 
               {isFinished ? (
-                <TouchableOpacity 
-                  style={styles.completedBadge} 
-                  onPress={() => handleRedoSession(item.dateStr)}
-                >
+                <TouchableOpacity style={styles.completedBadge} onPress={() => triggerRedoPopup(item.dateStr)}>
                   <Text style={styles.completedBadgeText}>Session Complete</Text>
                   <Ionicons name="refresh-circle" size={20} color="#FFF" />
                 </TouchableOpacity>
               ) : isFuture ? (
-                <TouchableOpacity 
-                  style={[styles.startWorkoutBtn, { backgroundColor: '#F2F2F7' }]} 
-                  onPress={() => router.push({ pathname: '/workouts', params: { date: item.dateStr } })}
-                >
+                <TouchableOpacity style={[styles.startWorkoutBtn, { backgroundColor: '#F2F2F7' }]} onPress={() => router.push({ pathname: '/workouts', params: { date: item.dateStr } })}>
                   <Text style={[styles.startWorkoutBtnText, { color: '#000' }]}>Edit Plan</Text>
                   <Ionicons name="pencil" size={16} color="#000" />
                 </TouchableOpacity>
               ) : (
-                <TouchableOpacity 
-                  style={[styles.startWorkoutBtn, isStarted && { backgroundColor: '#c62828' }]} 
-                  onPress={() => router.push('/(main)/active-workout')}
-                >
+                <TouchableOpacity style={[styles.startWorkoutBtn, isStarted && { backgroundColor: '#c62828' }]} onPress={() => router.push('/(main)/active-workout')}>
                   <Text style={styles.startWorkoutBtnText}>{isStarted ? "Resume Workout" : "Start Workout"}</Text>
                   <Ionicons name={isStarted ? "refresh" : "play"} size={16} color="#FFF" />
                 </TouchableOpacity>
@@ -155,12 +130,7 @@ export default function HomeScreen() {
             <View style={styles.emptyContent}>
               <View style={styles.iconCircle}><Ionicons name="barbell-outline" size={32} color="#AAA" /></View>
               <Text style={styles.noWorkoutText}>No workout planned</Text>
-              <TouchableOpacity 
-                style={styles.planButton} 
-                onPress={() => router.push({ pathname: '/workouts', params: { date: item.dateStr } })}
-              >
-                <Text style={styles.planButtonText}>Plan Session</Text>
-              </TouchableOpacity>
+              <TouchableOpacity style={styles.planButton} onPress={() => router.push({ pathname: '/workouts', params: { date: item.dateStr } })}><Text style={styles.planButtonText}>Plan Session</Text></TouchableOpacity>
             </View>
           )}
         </View>
@@ -175,28 +145,11 @@ export default function HomeScreen() {
           <Text style={styles.welcomeText}>Hi {fullName.split(' ')[0]},</Text>
           <Text style={styles.subtitleText}>Consistency is the key to progress.</Text>
         </View>
-
-        <FlatList 
-          data={workoutDays} 
-          renderItem={renderWorkoutCard} 
-          horizontal 
-          pagingEnabled 
-          showsHorizontalScrollIndicator={false} 
-          onScroll={handleScroll} 
-          scrollEventThrottle={16} 
-          snapToAlignment="center" 
-          keyExtractor={(item) => item.id} 
-        />
-
+        <FlatList data={workoutDays} renderItem={renderWorkoutCard} horizontal pagingEnabled showsHorizontalScrollIndicator={false} onScroll={handleScroll} scrollEventThrottle={16} snapToAlignment="center" keyExtractor={(item) => item.id} />
         <View style={styles.paginationDots}>
           {workoutDays.map((_, i) => <View key={i} style={[styles.dot, activeIndex === i ? styles.activeDot : styles.inactiveDot]} />)}
         </View>
-
-        <TouchableOpacity 
-          style={styles.plansButton} 
-          onPress={() => router.push('/(main)/programs')} 
-          activeOpacity={0.8}
-        >
+        <TouchableOpacity style={styles.plansButton} onPress={() => router.push('/(main)/programs')} activeOpacity={0.8}>
           <View style={styles.buttonIconCircle}><Ionicons name="list" size={24} color="#c62828" /></View>
           <View style={styles.buttonTextContainer}>
             <Text style={styles.buttonTitle}>Choose Training Plan</Text>
@@ -206,11 +159,20 @@ export default function HomeScreen() {
         </TouchableOpacity>
       </ScrollView>
 
-      {/* FIXED: Onboarding Modal is controlled by isModalVisible state */}
-      <OnboardingModal 
-        isVisible={isModalVisible} 
-        onClose={() => setIsModalVisible(false)} 
-      />
+      {/* CUSTOM REDO MODAL */}
+      <Modal visible={redoModalVisible} animationType="fade" transparent={true}>
+        <View style={styles.centerModalOverlay}>
+          <View style={styles.confirmBox}>
+            <View style={styles.confirmIconCircle}><Ionicons name="refresh" size={40} color="#c62828" /></View>
+            <Text style={styles.confirmTitle}>Unlock Session?</Text>
+            <Text style={styles.confirmSubtitle}>Would you like to redo or edit this completed session?</Text>
+            <TouchableOpacity style={styles.confirmFinishBtn} onPress={executeUnlock}><Text style={styles.confirmFinishText}>Yes, Unlock</Text></TouchableOpacity>
+            <TouchableOpacity style={{ marginTop: 15 }} onPress={() => setRedoModalVisible(false)}><Text style={{ color: '#666', fontWeight: '600' }}>CANCEL</Text></TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      <OnboardingModal isVisible={isModalVisible} onClose={() => setIsModalVisible(false)} />
     </View>
   );
 }
@@ -249,4 +211,11 @@ const styles = StyleSheet.create({
   buttonTextContainer: { flex: 1, marginLeft: 15 },
   buttonTitle: { color: '#FFF', fontSize: 18, fontWeight: 'bold' },
   buttonSubtitle: { color: 'rgba(255,255,255,0.8)', fontSize: 13 },
+  centerModalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 30 },
+  confirmBox: { backgroundColor: '#FFF', borderRadius: 25, width: width - 60, padding: 25, alignItems: 'center' },
+  confirmIconCircle: { width: 80, height: 80, borderRadius: 40, backgroundColor: '#FFEBEE', justifyContent: 'center', alignItems: 'center', marginBottom: 20 },
+  confirmTitle: { fontSize: 22, fontWeight: 'bold', marginBottom: 10 },
+  confirmSubtitle: { fontSize: 15, color: '#666', textAlign: 'center', marginBottom: 25 },
+  confirmFinishBtn: { backgroundColor: '#c62828', width: '100%', padding: 18, borderRadius: 15, alignItems: 'center' },
+  confirmFinishText: { color: '#FFF', fontWeight: 'bold' },
 });
