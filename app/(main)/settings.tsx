@@ -1,6 +1,7 @@
 import { auth } from '@/fireBaseConfig';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import * as WebBrowser from 'expo-web-browser'; // Import the browser tool
 import React, { useState } from 'react';
 import {
   ScrollView,
@@ -18,9 +19,18 @@ export default function SettingsScreen() {
 
   // Switch States
   const [notifications, setNotifications] = useState(true);
-  
-  // Units State: true = kg (Metric), false = lbs (Imperial)
   const [isMetric, setIsMetric] = useState(true); 
+
+  // --- WEB BROWSER HANDLER ---
+  const openLegalLink = async (url: string) => {
+    // This opens the link in an in-app popup (just like Spotify)
+    await WebBrowser.openBrowserAsync(url, {
+      toolbarColor: '#000000', // Matches your header color
+      controlsColor: '#c62828', // Matches your brand red
+      enableBarCollapsing: true,
+      showTitle: true,
+    });
+  };
 
   const handleDeleteAccountNav = () => {
     router.push('/(main)/delete-account');
@@ -69,7 +79,6 @@ export default function SettingsScreen() {
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>App Preferences</Text>
           <View style={styles.card}>
-            {/* Notifications Toggle */}
             <View style={styles.row}>
               <View style={styles.rowLeft}>
                 <View style={[styles.iconBox, { backgroundColor: '#FFEBEE' }]}>
@@ -83,17 +92,13 @@ export default function SettingsScreen() {
                 trackColor={{ false: "#D1D1D6", true: "#34C759" }}
               />
             </View>
-
             <View style={styles.divider} />
-
-            {/* Units Toggle (kg vs lbs) */}
             <View style={styles.row}>
               <View style={styles.rowLeft}>
                 <View style={[styles.iconBox, { backgroundColor: '#F2F2F7' }]}>
                   <Ionicons name="scale-outline" size={20} color="#666" />
                 </View>
                 <View>
-                    {/* Dynamic Label based on state */}
                     <Text style={styles.rowTitle}>{isMetric ? "Metric (kg)" : "Imperial (lbs)"}</Text>
                     <Text style={styles.rowSubLabel}>Preferred weight units</Text>
                 </View>
@@ -107,15 +112,30 @@ export default function SettingsScreen() {
           </View>
         </View>
 
-        {/* SECTION 3: PRIVACY & LEGAL */}
+        {/* SECTION 3: PRIVACY & LEGAL (Now as Web Links) */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Privacy & Legal</Text>
           <View style={styles.card}>
-            <SettingRow icon="document-text-outline" title="Privacy Policy" showArrow onPress={() => {}} />
+            <SettingRow 
+              icon="document-text-outline" 
+              title="Privacy Policy" 
+              showArrow 
+              onPress={() => openLegalLink('https://yourwebsite.com/privacy')} 
+            />
             <View style={styles.divider} />
-            <SettingRow icon="reader-outline" title="Terms of Service" showArrow onPress={() => {}} />
+            <SettingRow 
+              icon="reader-outline" 
+              title="Terms of Service" 
+              showArrow 
+              onPress={() => openLegalLink('https://yourwebsite.com/terms')} 
+            />
             <View style={styles.divider} />
-            <SettingRow icon="help-circle-outline" title="Contact Support" showArrow onPress={() => {}} />
+            <SettingRow 
+              icon="help-circle-outline" 
+              title="Contact Support" 
+              showArrow 
+              onPress={() => openLegalLink('https://yourwebsite.com/support')} 
+            />
           </View>
         </View>
 

@@ -1,8 +1,8 @@
 import { auth, db } from '@/fireBaseConfig';
-import { addExerciseToDate, deleteExerciseFromDate, Exercise, updateExerciseInDate } from '@/services/workoutService';
+import { addExerciseToDate, Exercise, updateExerciseInDate } from '@/services/workoutService';
 import { Ionicons } from '@expo/vector-icons';
-import { useLocalSearchParams, useRouter } from 'expo-router'; // Added useLocalSearchParams
-import { doc, onSnapshot } from 'firebase/firestore';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import { doc, onSnapshot, updateDoc } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
 import { Alert, LayoutAnimation, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, UIManager, View } from 'react-native';
 import { Calendar } from 'react-native-calendars';
@@ -18,13 +18,14 @@ const QUICK_GROUPS = ["Primer", "Power Movements", "Main Lifts", "Accessories"];
 
 export default function WorkoutsScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams(); // 1. Listen for incoming date params
+  const params = useLocalSearchParams();
   const insets = useSafeAreaInsets();
   
   const [isExpanded, setIsExpanded] = useState(false);
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [exercises, setExercises] = useState<Exercise[]>([]);
   const [isFinished, setIsFinished] = useState(false);
+  const [isStarted, setIsStarted] = useState(false);
   const [weekDates, setWeekDates] = useState<Date[]>([]);
 
   const [modalVisible, setModalVisible] = useState(false);
@@ -44,7 +45,6 @@ export default function WorkoutsScreen() {
   const selectedStr = getFormattedStr(selectedDate);
   const todayStr = getFormattedStr(new Date());
 
-  // 2. EFFECT: If a date is passed from Home Screen, update the selection
   useEffect(() => {
     if (params.date && typeof params.date === 'string') {
       const [y, m, d] = params.date.split('-').map(Number);
@@ -60,8 +60,9 @@ export default function WorkoutsScreen() {
         const data = docSnap.data();
         setExercises(data.exercises || []);
         setIsFinished(data.isFinished || false);
+        setIsStarted(data.isStarted || false);
       } else {
-        setExercises([]); setIsFinished(false);
+        setExercises([]); setIsFinished(false); setIsStarted(false);
       }
     });
   }, [selectedStr]);
@@ -74,11 +75,31 @@ export default function WorkoutsScreen() {
     }));
   }, [selectedDate]);
 
+  // --- NEW: REDO LOGIC ---
+  const handleRedoSession = () => {
+    Alert.alert(
+      "Unlock Session?",
+      "Would you like to edit or resume this completed session?",
+      [
+        { text: "Cancel", style: "cancel" },
+        { 
+          text: "Yes, Unlock", 
+          onPress: async () => {
+            const user = auth.currentUser;
+            if (user) {
+              await updateDoc(doc(db, "customers", user.uid, "workouts", selectedStr), { isFinished: false });
+              if (selectedStr === todayStr) router.push('/(main)/active-workout');
+            }
+          } 
+        }
+      ]
+    );
+  };
+
   const handleNameChange = (text: string) => {
     setNewExName(text);
     if (text.trim().length > 0) {
-      const filtered = DEFAULT_EXERCISES.filter(ex => ex.toLowerCase().includes(text.toLowerCase()));
-      setFilteredSuggestions(filtered);
+      setFilteredSuggestions(DEFAULT_EXERCISES.filter(ex => ex.toLowerCase().includes(text.toLowerCase())));
     } else { setFilteredSuggestions([]); }
   };
 
@@ -158,10 +179,7 @@ export default function WorkoutsScreen() {
                     <Text style={styles.exerciseMeta}>{item.sets} Sets • {Array.isArray(item.reps) ? item.reps.join(', ') : item.reps} Reps</Text>
                   </View>
                   {!isFinished && (
-                    <View style={styles.actionRow}>
-                      <TouchableOpacity onPress={() => { setEditingId(item.id); setNewExName(item.name); setNewSets(item.sets); setRepsArray(Array.isArray(item.reps) ? item.reps : [item.reps]); setNewGroupTitle(item.groupTitle || 'Main Lifts'); setModalVisible(true); }} style={styles.actionBtn}><Ionicons name="pencil" size={18} color="#007AFF" /></TouchableOpacity>
-                      <TouchableOpacity onPress={() => { Alert.alert("Delete", "Remove exercise?", [{ text: "Cancel" }, { text: "Delete", style: "destructive", onPress: async () => { const user = auth.currentUser; if (user) await deleteExerciseFromDate(user.uid, selectedStr, item.id); }}]); }} style={styles.actionBtn}><Ionicons name="trash" size={18} color="#FF3B30" /></TouchableOpacity>
-                    </View>
+                    <TouchableOpacity onPress={() => { setEditingId(item.id); setNewExName(item.name); setNewSets(item.sets); setRepsArray(Array.isArray(item.reps) ? item.reps : [item.reps]); setNewGroupTitle(item.groupTitle || 'Main Lifts'); setModalVisible(true); }} style={styles.actionBtn}><Ionicons name="pencil" size={18} color="#007AFF" /></TouchableOpacity>
                   )}
                 </View>
               ))}
@@ -174,46 +192,28 @@ export default function WorkoutsScreen() {
       <View style={[styles.footer, { paddingBottom: insets.bottom + 15 }]}>
         {!isFinished ? (
           <>
-            <TouchableOpacity style={styles.addExButton} onPress={() => setModalVisible(true)}>
-              <Text style={styles.addExTitle}>Add Exercise</Text>
-            </TouchableOpacity>
+            <TouchableOpacity style={styles.addExButton} onPress={() => setModalVisible(true)}><Text style={styles.addExTitle}>Add Exercise</Text></TouchableOpacity>
             {exercises.length > 0 && selectedStr === todayStr && (
-              <TouchableOpacity style={styles.startLiftingButton} onPress={() => router.push('/(main)/active-workout')}>
-                <Text style={styles.startLiftingText}>Start Workout</Text>
+              <TouchableOpacity style={[styles.startLiftingButton, isStarted && { backgroundColor: '#c62828' }]} onPress={() => router.push('/(main)/active-workout')}>
+                <Text style={styles.startLiftingText}>{isStarted ? "Resume Workout" : "Start Workout"}</Text>
               </TouchableOpacity>
             )}
           </>
         ) : (
-          <View style={styles.finishedBtn}><Text style={styles.finishedBtnText}>Session Complete</Text></View>
+          <TouchableOpacity style={styles.finishedBtn} onPress={handleRedoSession}>
+            <Text style={styles.finishedBtnText}>Session Complete</Text>
+            <Ionicons name="refresh" size={18} color="#FFF" />
+          </TouchableOpacity>
         )}
       </View>
 
       <Modal visible={modalVisible} animationType="slide" transparent={true}>
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>{editingId ? "Edit Exercise" : "New Exercise"}</Text>
+            <Text style={styles.modalTitle}>Plan Exercise</Text>
             <TextInput style={styles.input} placeholder="Exercise Name" value={newExName} onChangeText={handleNameChange} />
-            {filteredSuggestions.length > 0 && (
-              <View style={styles.suggestionsWrapper}>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                  {filteredSuggestions.map(s => (
-                    <TouchableOpacity key={s} style={styles.suggestionChip} onPress={() => {setNewExName(s); setFilteredSuggestions([]);}}>
-                      <Text style={styles.suggestionText}>{s}</Text>
-                    </TouchableOpacity>
-                  ))}
-                </ScrollView>
-              </View>
-            )}
             <TextInput style={styles.input} placeholder="Group" value={newGroupTitle} onChangeText={setNewGroupTitle} />
-            <View style={styles.suggestionsWrapper}>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                {QUICK_GROUPS.map(g => (
-                  <TouchableOpacity key={g} style={[styles.suggestionChip, newGroupTitle === g && { backgroundColor: '#c62828', borderColor: '#c62828' }]} onPress={() => setNewGroupTitle(g)}>
-                    <Text style={[styles.suggestionText, newGroupTitle === g && { color: '#FFF' }]}>{g}</Text>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-            </View>
+            <View style={styles.suggestionsWrapper}><ScrollView horizontal showsHorizontalScrollIndicator={false}>{QUICK_GROUPS.map(g => (<TouchableOpacity key={g} style={[styles.suggestionChip, newGroupTitle === g && { backgroundColor: '#c62828', borderColor: '#c62828' }]} onPress={() => setNewGroupTitle(g)}><Text style={[styles.suggestionText, newGroupTitle === g && { color: '#FFF' }]}>{g}</Text></TouchableOpacity>))}</ScrollView></View>
             <TextInput style={styles.input} placeholder="Sets" keyboardType="numeric" value={newSets} onChangeText={handleSetsChange} />
             <View style={styles.repsGrid}>{repsArray.map((r, i) => (<View key={i} style={styles.repBox}><Text style={styles.repLabel}>Rep {i+1}</Text><TextInput style={styles.repInput} keyboardType="numeric" value={r} placeholder="0" onChangeText={(t) => { const a = [...repsArray]; a[i] = t; setRepsArray(a); }} /></View>))}</View>
             <TouchableOpacity onPress={handleSave} style={styles.saveBtn}><Text style={styles.saveBtnText}>Save</Text></TouchableOpacity>
@@ -244,14 +244,13 @@ const styles = StyleSheet.create({
   exerciseInfo: { flex: 1 },
   exerciseName: { fontSize: 16, fontWeight: 'bold' },
   exerciseMeta: { fontSize: 14, color: '#666', marginTop: 2 },
-  actionRow: { flexDirection: 'row', gap: 10 },
   actionBtn: { padding: 5 },
   footer: { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: 'rgba(242,242,247,0.95)', paddingHorizontal: 20, paddingTop: 10, gap: 8 },
   addExButton: { backgroundColor: '#c62828', padding: 12, borderRadius: 15, alignItems: 'center' },
   addExTitle: { color: '#FFF', fontSize: 16, fontWeight: 'bold' },
   startLiftingButton: { backgroundColor: '#000', height: 48, borderRadius: 12, justifyContent: 'center', alignItems: 'center' },
   startLiftingText: { color: '#FFF', fontWeight: 'bold' },
-  finishedBtn: { backgroundColor: '#34C759', height: 55, borderRadius: 15, justifyContent: 'center', alignItems: 'center' },
+  finishedBtn: { backgroundColor: '#34C759', height: 55, borderRadius: 15, justifyContent: 'center', alignItems: 'center', flexDirection: 'row', gap: 10 },
   finishedBtnText: { color: '#FFF', fontWeight: 'bold', fontSize: 16 },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: 20 },
   modalContent: { backgroundColor: '#FFF', borderRadius: 20, padding: 25 },

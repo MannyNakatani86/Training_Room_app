@@ -1,10 +1,12 @@
+import OnboardingModal from '@/components/OnboardingModal';
 import { auth, db } from '@/fireBaseConfig';
 import { Exercise } from '@/services/workoutService';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { doc, onSnapshot } from 'firebase/firestore';
+import { doc, onSnapshot, updateDoc } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
 import {
+  Alert,
   Dimensions,
   FlatList,
   NativeScrollEvent,
@@ -24,6 +26,9 @@ export default function HomeScreen() {
   const router = useRouter();
   const [activeIndex, setActiveIndex] = useState(0);
   const [workouts, setWorkouts] = useState<Record<string, any>>({});
+  
+  // FIXED: Restored missing state for the Onboarding Modal
+  const [isModalVisible, setIsModalVisible] = useState(false);
 
   const getFormattedStr = (date: Date) => {
     const offset = date.getTimezoneOffset();
@@ -58,6 +63,34 @@ export default function HomeScreen() {
     return () => unsubs.forEach(unsub => unsub());
   }, []);
 
+  // --- REDO LOGIC ---
+  const handleRedoSession = (dateStr: string) => {
+    Alert.alert(
+      "Unlock Session?",
+      "Would you like to redo or edit this completed session?",
+      [
+        { text: "Cancel", style: "cancel" },
+        { 
+          text: "Yes, Unlock", 
+          onPress: async () => {
+            const user = auth.currentUser;
+            if (user) {
+              await updateDoc(doc(db, "customers", user.uid, "workouts", dateStr), { 
+                isFinished: false 
+              });
+              // Only push to active-workout if it's actually today's session
+              if (dateStr === todayStr) {
+                router.push('/(main)/active-workout');
+              } else {
+                router.push({ pathname: '/workouts', params: { date: dateStr } });
+              }
+            }
+          } 
+        }
+      ]
+    );
+  };
+
   const handleScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
     setActiveIndex(Math.round(event.nativeEvent.contentOffset.x / width));
   };
@@ -66,7 +99,8 @@ export default function HomeScreen() {
     const dayData = workouts[item.dateStr];
     const dayExercises: Exercise[] = dayData?.exercises || [];
     const isFinished = dayData?.isFinished || false;
-    const isFuture = item.dateStr > todayStr; // Check if the card is a future day
+    const isStarted = dayData?.isStarted || false;
+    const isFuture = item.dateStr > todayStr;
 
     return (
       <View style={styles.cardContainer}>
@@ -91,27 +125,29 @@ export default function HomeScreen() {
                 {dayExercises.length > 3 && <Text style={styles.moreIndicator}>+ {dayExercises.length - 3} more</Text>}
               </View>
 
-              {/* DYNAMIC BUTTON LOGIC */}
               {isFinished ? (
-                <View style={styles.completedBadge}>
+                <TouchableOpacity 
+                  style={styles.completedBadge} 
+                  onPress={() => handleRedoSession(item.dateStr)}
+                >
                   <Text style={styles.completedBadgeText}>Session Complete</Text>
-                  <Ionicons name="checkmark-circle" size={18} color="#FFF" />
-                </View>
+                  <Ionicons name="refresh-circle" size={20} color="#FFF" />
+                </TouchableOpacity>
               ) : isFuture ? (
                 <TouchableOpacity 
                   style={[styles.startWorkoutBtn, { backgroundColor: '#F2F2F7' }]} 
                   onPress={() => router.push({ pathname: '/workouts', params: { date: item.dateStr } })}
                 >
-                  <Text style={[styles.startWorkoutBtnText, { color: '#000' }]}>Edit Workout</Text>
+                  <Text style={[styles.startWorkoutBtnText, { color: '#000' }]}>Edit Plan</Text>
                   <Ionicons name="pencil" size={16} color="#000" />
                 </TouchableOpacity>
               ) : (
                 <TouchableOpacity 
-                  style={styles.startWorkoutBtn} 
+                  style={[styles.startWorkoutBtn, isStarted && { backgroundColor: '#c62828' }]} 
                   onPress={() => router.push('/(main)/active-workout')}
                 >
-                  <Text style={styles.startWorkoutBtnText}>Start Workout</Text>
-                  <Ionicons name="play" size={16} color="#FFF" />
+                  <Text style={styles.startWorkoutBtnText}>{isStarted ? "Resume Workout" : "Start Workout"}</Text>
+                  <Ionicons name={isStarted ? "refresh" : "play"} size={16} color="#FFF" />
                 </TouchableOpacity>
               )}
             </View>
@@ -140,13 +176,27 @@ export default function HomeScreen() {
           <Text style={styles.subtitleText}>Consistency is the key to progress.</Text>
         </View>
 
-        <FlatList data={workoutDays} renderItem={renderWorkoutCard} horizontal pagingEnabled showsHorizontalScrollIndicator={false} onScroll={handleScroll} scrollEventThrottle={16} snapToAlignment="center" keyExtractor={(item) => item.id} />
+        <FlatList 
+          data={workoutDays} 
+          renderItem={renderWorkoutCard} 
+          horizontal 
+          pagingEnabled 
+          showsHorizontalScrollIndicator={false} 
+          onScroll={handleScroll} 
+          scrollEventThrottle={16} 
+          snapToAlignment="center" 
+          keyExtractor={(item) => item.id} 
+        />
 
         <View style={styles.paginationDots}>
           {workoutDays.map((_, i) => <View key={i} style={[styles.dot, activeIndex === i ? styles.activeDot : styles.inactiveDot]} />)}
         </View>
 
-        <TouchableOpacity style={styles.plansButton} onPress={() => router.push('/(main)/programs')} activeOpacity={0.8}>
+        <TouchableOpacity 
+          style={styles.plansButton} 
+          onPress={() => router.push('/(main)/programs')} 
+          activeOpacity={0.8}
+        >
           <View style={styles.buttonIconCircle}><Ionicons name="list" size={24} color="#c62828" /></View>
           <View style={styles.buttonTextContainer}>
             <Text style={styles.buttonTitle}>Choose Training Plan</Text>
@@ -155,6 +205,12 @@ export default function HomeScreen() {
           <Ionicons name="chevron-forward" size={20} color="#FFF" />
         </TouchableOpacity>
       </ScrollView>
+
+      {/* FIXED: Onboarding Modal is controlled by isModalVisible state */}
+      <OnboardingModal 
+        isVisible={isModalVisible} 
+        onClose={() => setIsModalVisible(false)} 
+      />
     </View>
   );
 }
