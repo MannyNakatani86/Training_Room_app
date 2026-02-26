@@ -1,14 +1,18 @@
 import {
   createUserWithEmailAndPassword,
+  sendEmailVerification,
   sendPasswordResetEmail,
   signInWithEmailAndPassword
 } from "firebase/auth";
 import { auth } from '../fireBaseConfig';
 
-// Create a new account
 export const signUp = async (email: string, pass: string) => {
   try {
     const userCredential = await createUserWithEmailAndPassword(auth, email, pass);
+    
+    // Send verification email immediately after creation
+    await sendEmailVerification(userCredential.user);
+    
     return { user: userCredential.user, success: true };
   } catch (error: any) {
     return { error: error.message, success: false };

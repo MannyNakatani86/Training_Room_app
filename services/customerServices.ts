@@ -1,4 +1,4 @@
-import { collection, deleteDoc, doc, getDocs, query, serverTimestamp, setDoc, updateDoc } from "firebase/firestore";
+import { collection, deleteDoc, doc, getDocs, query, serverTimestamp, setDoc, updateDoc, where } from "firebase/firestore";
 import { deleteObject, getDownloadURL, ref, uploadBytes } from "firebase/storage";
 import { db, storage } from '../fireBaseConfig'; // This imports the database you initialized
 
@@ -9,71 +9,96 @@ export interface CustomerData {
   phoneNumber?: string; // The "?" means it is optional
 }
 
-export const saveCustomerData = async (userId: string, data: CustomerData) => {
+export const saveCustomerData = async (userId: string, data: any) => {
   try {
-    // This creates (or updates) a document in the "customers" collection
     await setDoc(doc(db, "customers", userId), {
       ...data,
-      createdAt: serverTimestamp(), // Records exactly when they were created
+      username: data.username.toLowerCase(),
+      createdAt: serverTimestamp(),
     });
-    console.log("Success: Customer saved to Firestore!");
     return { success: true };
   } catch (error) {
-    console.error("Error saving customer:", error);
     return { success: false, error };
   }
 };
 
 export const uploadProfileImage = async (userId: string, uri: string) => {
   try {
-    // 1. Convert image to a format Firebase can handle (blob)
+    // 1. Convert image to blob
     const response = await fetch(uri);
     const blob = await response.blob();
 
-    // 2. Create a reference in Storage (e.g., profile_images/user123.jpg)
+    // 2. Create Storage Reference
     const imageRef = ref(storage, `profile_images/${userId}`);
 
-    // 3. Upload the file
+    // 3. Upload
     await uploadBytes(imageRef, blob);
 
-    // 4. Get the public URL of that image
+    // 4. Get URL and update Firestore
     const downloadURL = await getDownloadURL(imageRef);
-
-    // 5. Update the user's document in Firestore with the new URL
     const userDoc = doc(db, "customers", userId);
     await updateDoc(userDoc, { profileImage: downloadURL });
 
     return { success: true, url: downloadURL };
   } catch (error) {
-    console.error("Error uploading image:", error);
+    console.error("Upload error:", error);
     return { success: false, error };
   }
 };
 
 export const deleteUserData = async (userId: string) => {
   try {
-    // 1. Delete the main customer profile document
-    await deleteDoc(doc(db, "customers", userId));
-
-    // 2. Optional: Delete the workouts sub-collection
-    // Note: Firestore doesn't delete sub-collections automatically on the client side.
-    // We fetch them and delete them manually.
+    // 1. Delete Workouts Sub-collection
     const workoutsRef = collection(db, "customers", userId, "workouts");
-    const snapshot = await getDocs(query(workoutsRef));
-    const deletePromises = snapshot.docs.map(d => deleteDoc(d.ref));
-    await Promise.all(deletePromises);
+    const workoutSnaps = await getDocs(workoutsRef);
+    const workoutDeletePromises = workoutSnaps.docs.map(d => deleteDoc(d.ref));
+    await Promise.all(workoutDeletePromises);
 
-    // 3. Delete profile image from Storage if it exists
+    // 2. Delete Health/Metrics Sub-collection
+    const metricsRef = collection(db, "customers", userId, "health");
+    const metricSnaps = await getDocs(metricsRef);
+    const metricDeletePromises = metricSnaps.docs.map(d => deleteDoc(d.ref));
+    await Promise.all(metricDeletePromises);
+
+    // 3. Delete Profile Image from Storage (if exists)
     const imageRef = ref(storage, `profile_images/${userId}`);
     try {
       await deleteObject(imageRef);
     } catch (e) {
-      // Ignore error if no image existed
+      // Ignore error if image doesn't exist
     }
+
+    // 4. Delete Main Profile Document
+    await deleteDoc(doc(db, "customers", userId));
 
     return { success: true };
   } catch (error) {
-    console.error("Error deleting user data:", error);
+    console.error("Error cleaning up data:", error);
     return { success: false, error };
   }
 };
+
+export const isUsernameUnique = async (username: string) => {
+  if (!username) return false;
+  // Firestore queries are case-sensitive by default, but we store them lowercase
+  const customersRef = collection(db, "customers");
+  const q = query(customersRef, where("username", "==", username.toLowerCase().trim()));
+  const querySnapshot = await getDocs(q);
+  return querySnapshot.empty; // True if no one has this username
+};
+
+export const updateUsername = async (userId: string, newUsername: string) => {
+  try {
+    const isUnique = await isUsernameUnique(newUsername);
+    if (!isUnique) return { success: false, error: "Username already taken" };
+
+    const userRef = doc(db, "customers", userId);
+    await updateDoc(userRef, {
+      username: newUsername.toLowerCase().trim()
+    });
+    return { success: true };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+};
+
