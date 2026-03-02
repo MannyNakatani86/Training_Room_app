@@ -1,10 +1,4 @@
-import {
-  arrayUnion,
-  doc,
-  getDoc,
-  setDoc,
-  updateDoc
-} from "firebase/firestore";
+import { arrayUnion, collection, doc, getDoc, getDocs, query, setDoc, updateDoc } from "firebase/firestore";
 import { db } from '../fireBaseConfig';
 
 export interface Exercise {
@@ -13,6 +7,8 @@ export interface Exercise {
   sets: string;
   reps: string[];
   groupTitle?: string;
+  repUnit?: 'ea' | 'secs' | null;
+  supersetId?: string;
   loggedWeights?: string[];
   memo?: string;
   completedSetsCount?: number;
@@ -61,6 +57,41 @@ export const updateExerciseInDate = async (userId: string, dateString: string, u
       const updatedList = currentExercises.map(ex => ex.id === updatedEx.id ? updatedEx : ex);
       await updateDoc(docRef, { exercises: updatedList });
     }
+    return { success: true };
+  } catch (error) {
+    return { success: false, error };
+  }
+};
+
+export const updateGlobalLeaderboard = async (userId: string, userName: string, exerciseName: string, weight: number, unit: string) => {
+  // Normalize to kg for global comparison
+  const weightInKg = unit === 'lbs' ? weight * 0.453592 : weight;
+  
+  const leaderRef = doc(db, "leaderboards", exerciseName, "rankings", userId);
+  try {
+    await setDoc(leaderRef, {
+      userName,
+      score: weightInKg,
+      userId,
+      updatedAt: new Date()
+    }, { merge: true });
+  } catch (e) {
+    console.error("Error updating leaderboard", e);
+  }
+};
+
+export const deleteExerciseFromAllHistory = async (userId: string, exerciseName: string) => {
+  try {
+    const workoutsRef = collection(db, "customers", userId, "workouts");
+    const snapshot = await getDocs(query(workoutsRef));
+    const deletePromises = snapshot.docs.map(async (workoutDoc) => {
+      const data = workoutDoc.data();
+      if (data.exercises) {
+        const updated = data.exercises.filter((ex: any) => ex.name !== exerciseName);
+        await updateDoc(workoutDoc.ref, { exercises: updated });
+      }
+    });
+    await Promise.all(deletePromises);
     return { success: true };
   } catch (error) {
     return { success: false, error };

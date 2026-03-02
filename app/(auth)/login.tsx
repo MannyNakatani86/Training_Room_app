@@ -29,6 +29,7 @@ export default function LoginScreen() {
   // Form States
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
+  const [dob, setDob] = useState(''); 
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -36,7 +37,7 @@ export default function LoginScreen() {
   
   // UI States
   const [loading, setLoading] = useState(false);
-  const [showPassword, setShowPassword] = useState(false); // Only for primary password
+  const [showPassword, setShowPassword] = useState(false);
   const [agreedToTerms, setAgreedToTerms] = useState(false);
 
   const openAuth = (mode: 'login' | 'signup') => {
@@ -58,8 +59,7 @@ export default function LoginScreen() {
       if (!result.success) setError("Invalid email or password"); 
       setLoading(false);
     } else {
-      // --- SIGNUP VALIDATION ---
-      if (!firstName || !lastName || !email || !password || !confirmPassword || !username) {
+      if (!firstName || !lastName || !dob || !email || !password || !confirmPassword || !username) {
         setError("All fields are required");
         return;
       }
@@ -77,8 +77,6 @@ export default function LoginScreen() {
       }
 
       setLoading(true);
-
-      // 1. Check if Username is taken (Case-insensitive)
       const isUnique = await isUsernameUnique(username);
       if (!isUnique) {
         setError("This username is already taken");
@@ -86,30 +84,17 @@ export default function LoginScreen() {
         return;
       }
 
-      // 2. Attempt Signup (Auth Service handles email verification)
       const result = await signUp(email, password);
-      
       if (result.success && result.user) {
-        // 3. Save detailed profile data
         await saveCustomerData(result.user.uid, { 
-          firstName, 
-          lastName, 
+          firstName, lastName, dob, 
           name: `${firstName} ${lastName}`,
-          email, 
-          username: username.toLowerCase().trim()
+          email, username: username.toLowerCase().trim()
         });
-        
         setModalVisible(false);
-        Alert.alert(
-          "Verify Your Email", 
-          "We've sent a link to your email. Please verify your account before logging in."
-        );
+        Alert.alert("Verify Email", "Please check your inbox to verify your account.");
       } else {
-        if (result.error?.includes('email-already-in-use')) {
-          setError("This email address is already registered");
-        } else {
-          setError(result.error || "An error occurred");
-        }
+        setError(result.error?.includes('email-already-in-use') ? "Email already registered" : result.error || "Signup failed");
       }
       setLoading(false);
     }
@@ -121,6 +106,9 @@ export default function LoginScreen() {
 
       <View style={styles.logoContainer}>
         <Image source={require('../../assets/training_room_logo.png')} style={styles.logo} resizeMode="contain" />
+      </View>
+
+      <View style={styles.sloganContainer}>
         <Text style={styles.slogan}>{"Athlete-Built.\nPerformance-Driven"}</Text>
       </View>
 
@@ -133,26 +121,24 @@ export default function LoginScreen() {
         <Pressable style={styles.modalOverlay} onPress={() => setModalVisible(false)} />
         
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.sheetContainer}>
-          <View style={[styles.bottomSheet, authMode === 'signup' && { minHeight: '85%' }]}>
+          <View style={styles.bottomSheet}>
             <View style={styles.handle} />
             <Text style={styles.sheetTitle}>{authMode === 'login' ? 'Welcome Back' : 'Create Profile'}</Text>
 
             {error && <View style={styles.errorBox}><Text style={styles.errorText}>{error}</Text></View>}
 
-            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 20 }}>
+            <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
               {authMode === 'signup' && (
                 <>
-                  <View style={styles.row}>
-                    <TextInput style={[styles.input, { flex: 1, marginRight: 5 }]} placeholder="First Name" value={firstName} onChangeText={setFirstName} />
-                    <TextInput style={[styles.input, { flex: 1, marginLeft: 5 }]} placeholder="Last Name" value={lastName} onChangeText={setLastName} />
-                  </View>
+                  <TextInput style={styles.input} placeholder="First Name" value={firstName} onChangeText={setFirstName} />
+                  <TextInput style={styles.input} placeholder="Last Name" value={lastName} onChangeText={setLastName} />
+                  <TextInput style={styles.input} placeholder="Date of Birth (DD/MM/YYYY)" value={dob} onChangeText={setDob} keyboardType="numeric" />
                   <TextInput style={styles.input} placeholder="Username" value={username} onChangeText={setUsername} autoCapitalize="none" />
                 </>
               )}
 
               <TextInput style={styles.input} placeholder="Email Address" value={email} onChangeText={setEmail} autoCapitalize="none" keyboardType="email-address" />
 
-              {/* PRIMARY PASSWORD (TOGGLEABLE) */}
               <View style={styles.passwordWrapper}>
                 <TextInput 
                   style={[styles.input, { marginBottom: 0, flex: 1 }]} 
@@ -161,29 +147,22 @@ export default function LoginScreen() {
                   onChangeText={setPassword} 
                   secureTextEntry={!showPassword} 
                 />
-                <TouchableOpacity style={styles.eyeIcon} onPress={() => setShowPassword(!showPassword)}>
+                <TouchableOpacity onPress={() => setShowPassword(!showPassword)} style={styles.eyeIcon}>
                   <Ionicons name={showPassword ? "eye-off" : "eye"} size={22} color="#999" />
                 </TouchableOpacity>
               </View>
 
-              {/* CONFIRM PASSWORD (ALWAYS MASKED) */}
               {authMode === 'signup' && (
-                <TextInput 
-                  style={[styles.input, { marginTop: 15 }]} 
-                  placeholder="Confirm Password" 
-                  value={confirmPassword} 
-                  onChangeText={setConfirmPassword} 
-                  secureTextEntry={true} 
-                />
-              )}
-
-              {authMode === 'signup' && (
-                <TouchableOpacity style={styles.termsRow} onPress={() => setAgreedToTerms(!agreedToTerms)}>
-                  <Ionicons name={agreedToTerms ? "checkbox" : "square-outline"} size={22} color={agreedToTerms ? "#c62828" : "#999"} />
-                  <Text style={styles.termsText}>
-                    I agree to the <Text style={styles.linkText} onPress={() => WebBrowser.openBrowserAsync('https://yourwebsite.com/terms')}>Terms & Conditions</Text>
-                  </Text>
-                </TouchableOpacity>
+                <>
+                  <TextInput style={[styles.input, { marginTop: 15 }]} placeholder="Confirm Password" value={confirmPassword} onChangeText={setConfirmPassword} secureTextEntry={true} />
+                  
+                  <TouchableOpacity style={styles.termsRow} onPress={() => setAgreedToTerms(!agreedToTerms)}>
+                    <Ionicons name={agreedToTerms ? "checkbox" : "square-outline"} size={22} color={agreedToTerms ? "#c62828" : "#999"} />
+                    <Text style={styles.termsText}>
+                      I agree to the <Text style={styles.linkText} onPress={() => WebBrowser.openBrowserAsync('https://www.trainingroomcoach.com/terms-and-conditions')}>Terms & Conditions</Text>
+                    </Text>
+                  </TouchableOpacity>
+                </>
               )}
 
               {loading ? (
@@ -199,6 +178,7 @@ export default function LoginScreen() {
                   <Text style={styles.forgotBtnText}>Forgot password?</Text>
                 </TouchableOpacity>
               )}
+              <View style={{ height: 30 }} />
             </ScrollView>
           </View>
         </KeyboardAvoidingView>
@@ -208,11 +188,20 @@ export default function LoginScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#000', justifyContent: 'space-between', paddingVertical: 60 },
+  container: { flex: 1, backgroundColor: '#000', justifyContent: 'space-between', paddingVertical: 80 },
   instantOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 1 },
-  logoContainer: { alignItems: 'center', marginTop: 40 },
-  logo: { width: 300, height: 300 },
-  slogan: { fontSize: 30, fontWeight: '900', color: '#ffffff', textAlign: 'center', lineHeight: 32 },
+  logoContainer: { alignItems: 'center' },
+  logo: { width: 250, height: 250 },
+  sloganContainer: { alignItems: 'center', justifyContent: 'center' },
+  slogan: { 
+    fontSize: 26, 
+    fontWeight: '900', 
+    color: '#ffffff', 
+    textAlign: 'center', 
+    lineHeight: 32, 
+    letterSpacing: 1,
+    fontFamily: Platform.OS === 'ios' ? 'Arial' : 'sans-serif' 
+  },
   buttonContainer: { paddingHorizontal: 40, gap: 15 },
   loginButton: { backgroundColor: '#c62828', padding: 20, borderRadius: 15, alignItems: 'center' },
   loginButtonText: { color: '#FFF', fontSize: 18, fontWeight: 'bold' },
@@ -220,19 +209,30 @@ const styles = StyleSheet.create({
   signupButtonText: { color: '#000', fontSize: 18, fontWeight: 'bold' },
   modalOverlay: { flex: 1 },
   sheetContainer: { position: 'absolute', bottom: 0, width: '100%' },
-  bottomSheet: { backgroundColor: '#FFF', borderTopLeftRadius: 30, borderTopRightRadius: 30, paddingHorizontal: 30, paddingTop: 15, shadowColor: '#000', shadowOffset: { width: 0, height: -10 }, shadowOpacity: 0.1, shadowRadius: 10, elevation: 20 },
+  bottomSheet: { 
+    backgroundColor: '#FFF', 
+    borderTopLeftRadius: 30, 
+    borderTopRightRadius: 30, 
+    paddingHorizontal: 30, 
+    paddingTop: 15, 
+    shadowColor: '#000', 
+    shadowOffset: { width: 0, height: -10 }, 
+    shadowOpacity: 0.1, 
+    shadowRadius: 10, 
+    elevation: 20,
+    height: '80%' // FIXED HEIGHT at 80%
+  },
   handle: { width: 50, height: 6, backgroundColor: '#DDD', borderRadius: 3, alignSelf: 'center', marginBottom: 20 },
-  sheetTitle: { fontSize: 24, fontWeight: '900', marginBottom: 20, textAlign: 'center' },
-  row: { flexDirection: 'row', marginBottom: 15 },
-  input: { backgroundColor: '#F5F5F7', padding: 18, borderRadius: 15, fontSize: 16 },
-  passwordWrapper: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F5F5F7', borderRadius: 15 },
+  sheetTitle: { fontSize: 22, fontWeight: '900', marginBottom: 20, textAlign: 'center' },
+  input: { backgroundColor: '#F5F5F7', padding: 15, borderRadius: 15, fontSize: 16, marginBottom: 15 },
+  passwordWrapper: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F5F5F7', borderRadius: 15, marginBottom: 5 },
   eyeIcon: { paddingHorizontal: 15 },
-  termsRow: { flexDirection: 'row', alignItems: 'center', marginTop: 20, paddingHorizontal: 5 },
+  termsRow: { flexDirection: 'row', alignItems: 'center', marginTop: 15, paddingHorizontal: 5 },
   termsText: { fontSize: 13, color: '#666', marginLeft: 10 },
   linkText: { color: '#c62828', fontWeight: 'bold' },
-  submitButton: { backgroundColor: '#c62828', padding: 20, borderRadius: 15, alignItems: 'center', marginTop: 25 },
+  submitButton: { backgroundColor: '#c62828', padding: 18, borderRadius: 15, alignItems: 'center', marginTop: 25 },
   submitButtonText: { color: '#FFF', fontSize: 18, fontWeight: 'bold' },
-  errorBox: { backgroundColor: '#FFEBEE', padding: 12, borderRadius: 10, marginBottom: 15 },
+  errorBox: { backgroundColor: '#FFEBEE', padding: 12, borderRadius: 10, marginBottom: 10 },
   errorText: { color: '#FF3B30', textAlign: 'center', fontWeight: '600', fontSize: 13 },
   forgotBtn: { marginTop: 15, alignItems: 'center', paddingBottom: 20 },
   forgotBtnText: { color: '#007AFF', fontSize: 14, fontWeight: '500' },

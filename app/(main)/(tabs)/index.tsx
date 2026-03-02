@@ -8,18 +8,26 @@ import React, { useEffect, useState } from 'react';
 import {
   Dimensions,
   FlatList,
+  LayoutAnimation,
   Modal,
-  NativeScrollEvent,
-  NativeSyntheticEvent,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
+  UIManager,
   View
 } from 'react-native';
-import { useUser } from './_layout';
+import { useUser } from '../_layout';
 
 const { width } = Dimensions.get('window');
+
+// MUST-HAVE GROUP ORDER
+const GROUP_ORDER = ["Primer", "Power Movements", "Main Lifts", "Accessories"];
+
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
 
 export default function HomeScreen() {
   const { fullName } = useUser();
@@ -27,10 +35,9 @@ export default function HomeScreen() {
   const [activeIndex, setActiveIndex] = useState(0);
   const [workouts, setWorkouts] = useState<Record<string, any>>({});
   const [isModalVisible, setIsModalVisible] = useState(false);
-
-  // Redo Modal States
   const [redoModalVisible, setRedoModalVisible] = useState(false);
   const [selectedRedoDate, setSelectedRedoDate] = useState('');
+  const [expandedCards, setExpandedCards] = useState<Record<string, boolean>>({});
 
   const getFormattedStr = (date: Date) => {
     const offset = date.getTimezoneOffset();
@@ -62,9 +69,9 @@ export default function HomeScreen() {
     return () => unsubs.forEach(unsub => unsub());
   }, []);
 
-  const triggerRedoPopup = (dateStr: string) => {
-    setSelectedRedoDate(dateStr);
-    setRedoModalVisible(true);
+  const toggleExpand = (id: string) => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setExpandedCards(prev => ({ ...prev, [id]: !prev[id] }));
   };
 
   const executeUnlock = async () => {
@@ -72,59 +79,85 @@ export default function HomeScreen() {
     if (user && selectedRedoDate) {
       await updateDoc(doc(db, "customers", user.uid, "workouts", selectedRedoDate), { isFinished: false });
       setRedoModalVisible(false);
-      if (selectedRedoDate === todayStr) {
-        router.push('/(main)/active-workout');
-      } else {
-        router.push({ pathname: '/workouts', params: { date: selectedRedoDate } });
-      }
+      if (selectedRedoDate === todayStr) router.push('/(main)/active-workout');
+      else router.push({ pathname: '/workouts', params: { date: selectedRedoDate } });
     }
-  };
-
-  const handleScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
-    setActiveIndex(Math.round(event.nativeEvent.contentOffset.x / width));
   };
 
   const renderWorkoutCard = ({ item }: { item: typeof workoutDays[0] }) => {
     const dayData = workouts[item.dateStr];
-    const dayExercises: Exercise[] = dayData?.exercises || [];
+    const rawExercises: Exercise[] = dayData?.exercises || [];
     const isFinished = dayData?.isFinished || false;
     const isStarted = dayData?.isStarted || false;
     const isFuture = item.dateStr > todayStr;
+    const isExpanded = expandedCards[item.id];
+
+    const sortedExercises = [...rawExercises].sort((a, b) => {
+      const indexA = GROUP_ORDER.indexOf(a.groupTitle || "Accessories");
+      const indexB = GROUP_ORDER.indexOf(b.groupTitle || "Accessories");
+      return (indexA === -1 ? 99 : indexA) - (indexB === -1 ? 99 : indexB);
+    });
+
+    const displayList = isExpanded ? sortedExercises : sortedExercises.slice(0, 3);
+    let lastGroupHeader = "";
+
+    const formatMeta = (ex: Exercise) => {
+    const repsPart = Array.isArray(ex.reps) ? ex.reps.join(',') : ex.reps;
+    const unitPart = ex.repUnit ? ` ${ex.repUnit}` : '';
+    return `${ex.sets}x${repsPart}${unitPart}`;
+    };
 
     return (
       <View style={styles.cardContainer}>
         <View style={styles.sectionHeader}><Text style={styles.sectionTitleText}>{item.dateLabel} • {item.fullDate}</Text></View>
-        <View style={styles.workoutCardFixed}>
-          {dayExercises.length > 0 ? (
+        
+        <TouchableOpacity activeOpacity={0.9} onPress={() => toggleExpand(item.id)} style={[styles.workoutCard, isExpanded && { minHeight: 320 }]}>
+          {rawExercises.length > 0 ? (
             <View style={styles.contentWrapper}>
-              <View style={styles.exercisePreviewArea}>
-                {dayExercises.slice(0, 3).map((ex, idx) => (
-                  <View key={idx} style={styles.miniExerciseRow}>
-                    <View style={[styles.redDot, isFinished && { backgroundColor: '#34C759' }]} />
-                    <View style={{ flex: 1 }}>
-                      <Text style={[styles.miniExName, isFinished && { color: '#888' }]} numberOfLines={1}>{ex.name}</Text>
-                      <Text style={styles.miniExMeta}>{ex.sets} Sets • {Array.isArray(ex.reps) ? ex.reps.join(', ') : ex.reps} Reps</Text>
-                    </View>
-                  </View>
-                ))}
+              <View style={styles.exerciseArea}>
+                <ScrollView showsVerticalScrollIndicator={false} scrollEnabled={isExpanded}>
+                  {displayList.map((ex, idx) => {
+                    const currentGroup = ex.groupTitle || "General";
+                    const showHeader = currentGroup !== lastGroupHeader;
+                    lastGroupHeader = currentGroup;
+
+                    return (
+                      <View key={ex.id}>
+                        {showHeader && <Text style={styles.groupLabel}>{currentGroup.toUpperCase()}</Text>}
+                        <View style={styles.miniExerciseRow}>
+                          <View style={[styles.redDot, isFinished && { backgroundColor: '#34C759' }]} />
+                          <View style={{ flex: 1 }}>
+                            <Text style={[styles.miniExName, isFinished && { color: '#888' }]} numberOfLines={1}>{ex.name}</Text>
+                            <Text style={styles.miniExMeta}>{formatMeta(ex)}</Text>
+                          </View>
+                        </View>
+                      </View>
+                    );
+                  })}
+                  {!isExpanded && rawExercises.length > 3 && (
+                    <Text style={styles.moreIndicator}>+ {rawExercises.length - 3} more. Tap to expand.</Text>
+                  )}
+                </ScrollView>
               </View>
 
-              {isFinished ? (
-                <TouchableOpacity style={styles.completedBadge} onPress={() => triggerRedoPopup(item.dateStr)}>
-                  <Text style={styles.completedBadgeText}>Session Complete</Text>
-                  <Ionicons name="refresh-circle" size={20} color="#FFF" />
-                </TouchableOpacity>
-              ) : isFuture ? (
-                <TouchableOpacity style={[styles.startWorkoutBtn, { backgroundColor: '#F2F2F7' }]} onPress={() => router.push({ pathname: '/workouts', params: { date: item.dateStr } })}>
-                  <Text style={[styles.startWorkoutBtnText, { color: '#000' }]}>Edit Plan</Text>
-                  <Ionicons name="pencil" size={16} color="#000" />
-                </TouchableOpacity>
-              ) : (
-                <TouchableOpacity style={[styles.startWorkoutBtn, isStarted && { backgroundColor: '#c62828' }]} onPress={() => router.push('/(main)/active-workout')}>
-                  <Text style={styles.startWorkoutBtnText}>{isStarted ? "Resume Workout" : "Start Workout"}</Text>
-                  <Ionicons name={isStarted ? "refresh" : "play"} size={16} color="#FFF" />
-                </TouchableOpacity>
-              )}
+              <View style={styles.buttonWrapper}>
+                {isFinished ? (
+                  <TouchableOpacity style={styles.completedBadge} onPress={() => { setSelectedRedoDate(item.dateStr); setRedoModalVisible(true); }}>
+                    <Text style={styles.completedBadgeText}>Session Complete</Text>
+                    <Ionicons name="refresh-circle" size={20} color="#FFF" />
+                  </TouchableOpacity>
+                ) : isFuture ? (
+                  <TouchableOpacity style={[styles.startWorkoutBtn, { backgroundColor: '#F2F2F7' }]} onPress={() => router.push({ pathname: '/workouts', params: { date: item.dateStr } })}>
+                    <Text style={[styles.startWorkoutBtnText, { color: '#000' }]}>Edit Plan</Text>
+                    <Ionicons name="pencil" size={16} color="#000" />
+                  </TouchableOpacity>
+                ) : (
+                  <TouchableOpacity style={[styles.startWorkoutBtn, isStarted && { backgroundColor: '#c62828' }]} onPress={() => router.push('/(main)/active-workout')}>
+                    <Text style={styles.startWorkoutBtnText}>{isStarted ? "Resume Workout" : "Start Workout"}</Text>
+                    <Ionicons name={isStarted ? "refresh" : "play"} size={16} color="#FFF" />
+                  </TouchableOpacity>
+                )}
+              </View>
             </View>
           ) : (
             <View style={styles.emptyContent}>
@@ -133,7 +166,7 @@ export default function HomeScreen() {
               <TouchableOpacity style={styles.planButton} onPress={() => router.push({ pathname: '/workouts', params: { date: item.dateStr } })}><Text style={styles.planButtonText}>Plan Session</Text></TouchableOpacity>
             </View>
           )}
-        </View>
+        </TouchableOpacity>
       </View>
     );
   };
@@ -145,21 +178,12 @@ export default function HomeScreen() {
           <Text style={styles.welcomeText}>Hi {fullName.split(' ')[0]},</Text>
           <Text style={styles.subtitleText}>Consistency is the key to progress.</Text>
         </View>
-        <FlatList data={workoutDays} renderItem={renderWorkoutCard} horizontal pagingEnabled showsHorizontalScrollIndicator={false} onScroll={handleScroll} scrollEventThrottle={16} snapToAlignment="center" keyExtractor={(item) => item.id} />
-        <View style={styles.paginationDots}>
-          {workoutDays.map((_, i) => <View key={i} style={[styles.dot, activeIndex === i ? styles.activeDot : styles.inactiveDot]} />)}
-        </View>
-        <TouchableOpacity style={styles.plansButton} onPress={() => router.push('/(main)/programs')} activeOpacity={0.8}>
-          <View style={styles.buttonIconCircle}><Ionicons name="list" size={24} color="#c62828" /></View>
-          <View style={styles.buttonTextContainer}>
-            <Text style={styles.buttonTitle}>Choose Training Plan</Text>
-            <Text style={styles.buttonSubtitle}>Get a customized 4-week protocol</Text>
-          </View>
-          <Ionicons name="chevron-forward" size={20} color="#FFF" />
-        </TouchableOpacity>
+        <FlatList data={workoutDays} renderItem={renderWorkoutCard} horizontal pagingEnabled showsHorizontalScrollIndicator={false} onScroll={(e) => setActiveIndex(Math.round(e.nativeEvent.contentOffset.x / width))} snapToAlignment="center" keyExtractor={(item) => item.id} />
+        <View style={styles.paginationDots}>{workoutDays.map((_, i) => <View key={i} style={[styles.dot, activeIndex === i ? styles.activeDot : styles.inactiveDot]} />)}</View>
+        <TouchableOpacity style={styles.plansButton} onPress={() => router.push('/(main)/programs')} activeOpacity={0.8}><View style={styles.buttonIconCircle}><Ionicons name="list" size={24} color="#c62828" /></View><View style={styles.buttonTextContainer}><Text style={styles.buttonTitle}>Choose Training Plan</Text><Text style={styles.buttonSubtitle}>Get a customized 4-week protocol</Text></View><Ionicons name="chevron-forward" size={20} color="#FFF" /></TouchableOpacity>
       </ScrollView>
 
-      {/* CUSTOM REDO MODAL */}
+      {/* REDO MODAL */}
       <Modal visible={redoModalVisible} animationType="fade" transparent={true}>
         <View style={styles.centerModalOverlay}>
           <View style={styles.confirmBox}>
@@ -185,19 +209,21 @@ const styles = StyleSheet.create({
   cardContainer: { width: width, paddingHorizontal: 20 },
   sectionHeader: { marginBottom: 12 },
   sectionTitleText: { fontSize: 13, fontWeight: '700', color: '#8e8e93', letterSpacing: 1 },
-  workoutCardFixed: { backgroundColor: '#FFF', borderRadius: 25, height: 280, padding: 20, elevation: 3, justifyContent: 'center' },
+  workoutCard: { backgroundColor: '#FFF', borderRadius: 25, minHeight: 280, padding: 20, elevation: 3, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 10 },
   contentWrapper: { flex: 1, justifyContent: 'space-between' },
-  exercisePreviewArea: { flex: 1, paddingTop: 5 },
-  miniExerciseRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 15 },
+  exerciseArea: { flex: 1 },
+  groupLabel: { fontSize: 9, fontWeight: '900', color: '#AAA', marginBottom: 8, letterSpacing: 1, marginTop: 5 },
+  miniExerciseRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
   redDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#c62828', marginRight: 12 },
-  miniExName: { fontSize: 16, fontWeight: '600' },
-  miniExMeta: { fontSize: 13, color: '#888', marginTop: 2 },
-  moreIndicator: { fontSize: 12, color: '#AAA', marginLeft: 18, fontStyle: 'italic' },
+  miniExName: { fontSize: 15, fontWeight: '600' },
+  miniExMeta: { fontSize: 12, color: '#888', marginTop: 2 },
+  moreIndicator: { fontSize: 11, color: '#c62828', fontWeight: '700', marginTop: 5, textAlign: 'center' },
+  buttonWrapper: { marginTop: 15 },
   startWorkoutBtn: { backgroundColor: '#000', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 14, borderRadius: 15, gap: 8 },
   startWorkoutBtnText: { color: '#FFF', fontWeight: 'bold', fontSize: 15 },
   completedBadge: { backgroundColor: '#34C759', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 14, borderRadius: 15, gap: 8 },
   completedBadgeText: { color: '#FFF', fontWeight: 'bold', fontSize: 15 },
-  emptyContent: { alignItems: 'center' },
+  emptyContent: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   iconCircle: { width: 60, height: 60, borderRadius: 30, backgroundColor: '#F2F2F7', alignItems: 'center', justifyContent: 'center', marginBottom: 12 },
   noWorkoutText: { fontSize: 16, color: '#999', fontWeight: '500', marginBottom: 15 },
   planButton: { backgroundColor: '#F2F2F7', paddingVertical: 10, paddingHorizontal: 20, borderRadius: 12 },

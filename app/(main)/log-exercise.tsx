@@ -5,9 +5,11 @@ import { collection, doc, getDoc, getDocs, query, updateDoc } from 'firebase/fir
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useUser } from './(tabs)/_layout';
 
 export default function LogExerciseScreen() {
   const router = useRouter();
+  const { unit } = useUser();
   const insets = useSafeAreaInsets();
   const { exerciseId, exerciseName, sets } = useLocalSearchParams<{ exerciseId: string; exerciseName: string; sets: string; }>();
   
@@ -120,13 +122,13 @@ export default function LogExerciseScreen() {
           {/* LOG SECTION */}
           <View style={styles.section}>
             <View style={styles.labelRow}>
-                <Text style={styles.label}>LOG YOUR SETS (KG)</Text>
+                <Text style={styles.label}>LOG YOUR SETS ({unit.toUpperCase()})</Text>
                 <TouchableOpacity style={styles.allBtn} onPress={fillAllWeights}><Text style={styles.allBtnText}>USE SET 1 FOR ALL</Text></TouchableOpacity>
             </View>
             {weights.map((w, index) => (
               <View key={index} style={styles.setRow}>
                 <View><Text style={styles.setLabel}>SET {index + 1}</Text><Text style={styles.targetRepsLabel}>Target: {repsArray[index] || '0'} reps</Text></View>
-                <TextInput style={styles.weightInput} keyboardType="numeric" placeholder="kg" value={w} onChangeText={(text) => { const newW = [...weights]; newW[index] = text; setWeights(newW); }} />
+                <TextInput style={styles.weightInput} keyboardType="numeric" placeholder={unit} value={w} onChangeText={(text) => { const newW = [...weights]; newW[index] = text; setWeights(newW); }} />
               </View>
             ))}
           </View>

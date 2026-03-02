@@ -22,7 +22,7 @@ import {
   View
 } from 'react-native';
 import { LineChart } from "react-native-chart-kit";
-import { useUser } from './_layout';
+import { useUser } from '../_layout';
 
 const screenWidth = Dimensions.get("window").width;
 const CHART_WIDTH = screenWidth - 40;
@@ -30,7 +30,7 @@ type TimeRange = 'week' | 'month' | 'year';
 
 export default function ProfileScreen() {
   const router = useRouter();
-  const { fullName, handle, memberSince, profileImage } = useUser();
+  const { fullName, handle, memberSince, profileImage, unit } = useUser();
   
   // UI States
   const [uploading, setUploading] = useState(false);
@@ -53,22 +53,28 @@ export default function ProfileScreen() {
   });
 
   const handleScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
-    setActiveGraphIndex(Math.round(event.nativeEvent.contentOffset.x / CHART_WIDTH));
+    const scrollPosition = event.nativeEvent.contentOffset.x;
+    const index = Math.round(scrollPosition / CHART_WIDTH);
+    setActiveGraphIndex(index);
   };
 
   useEffect(() => {
     const user = auth.currentUser;
     if (!user) return;
 
-    // 1. Body Metrics Listener
+    // 1. Listen for Body Metrics
     const unsubMetrics = onSnapshot(doc(db, "customers", user.uid, "health", "metrics"), (docSnap) => {
       if (docSnap.exists()) {
         const d = docSnap.data();
-        setMetrics({ weight: `${d.weight}kg`, height: `${d.height}cm`, bodyFat: `${d.bodyFat}%` });
+        setMetrics({ 
+          weight: d.weight ? `${d.weight}${unit}` : '--', 
+          height: d.height ? `${d.height}cm` : '--', 
+          bodyFat: d.bodyFat ? `${d.bodyFat}%` : '--' 
+        });
       }
     });
 
-    // 2. Fetch and Process Workout Data for Stats/Graphs/PRs
+    // 2. Process Workout Data
     const fetchAndProcess = async () => {
       try {
         const workoutSnap = await getDocs(query(collection(db, "customers", user.uid, "workouts")));
@@ -96,11 +102,11 @@ export default function ProfileScreen() {
         if (range === 'year') {
           const months: Record<string, any> = {};
           filtered.forEach(w => {
-            const m = new Date(w.id).toLocaleString('default', { month: 'short' });
-            if (!months[m]) months[m] = { vol: 0, r: [], s: [] };
-            months[m].vol += (w.sessionTonnage || 0);
-            if (w.readinessScore) months[m].r.push(w.readinessScore);
-            if (w.sorenessScore) months[m].s.push(w.sorenessScore);
+            const mLabel = new Date(w.id).toLocaleString('default', { month: 'short' });
+            if (!months[mLabel]) months[mLabel] = { vol: 0, r: [], s: [] };
+            months[mLabel].vol += (w.sessionTonnage || 0);
+            if (w.readinessScore) months[mLabel].r.push(w.readinessScore);
+            if (w.sorenessScore) months[mLabel].s.push(w.sorenessScore);
           });
           labels = Object.keys(months);
           tonnages = labels.map(l => months[l].vol);
@@ -122,7 +128,6 @@ export default function ProfileScreen() {
           ]
         });
 
-        // Stats & PRs
         const prMap: Record<string, number> = {};
         let tSched = 0, tAct = 0, fCount = 0;
         allWorkouts.forEach(w => {
@@ -141,7 +146,7 @@ export default function ProfileScreen() {
     };
     fetchAndProcess();
     return () => unsubMetrics();
-  }, [range]);
+  }, [range, unit]);
 
   const pickImage = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -158,12 +163,7 @@ export default function ProfileScreen() {
     if (!newUsername.trim()) return;
     setIsUpdatingUsername(true);
     const res = await updateUsername(auth.currentUser!.uid, newUsername);
-    if (res.success) {
-      Alert.alert("Success", "Username updated!");
-      setUsernameModalVisible(false);
-    } else {
-      Alert.alert("Error", res.error);
-    }
+    if (res.success) { setUsernameModalVisible(false); } else { Alert.alert("Error", res.error); }
     setIsUpdatingUsername(false);
   };
 
@@ -235,7 +235,7 @@ export default function ProfileScreen() {
                 </TouchableOpacity>
               ))}
             </View>
-            <FlatList data={[{ id:'t', title:'Total Volume (kg)', data:tonnageData, type:'tonnage'}, { id:'w', title:'Readiness vs Soreness', data:wellnessData, type:'wellness'}]} renderItem={renderGraph} horizontal pagingEnabled showsHorizontalScrollIndicator={false} onScroll={handleScroll} keyExtractor={item => item.id} />
+            <FlatList data={[{ id:'t', title:`Total Volume (${unit})`, data:tonnageData, type:'tonnage'}, { id:'w', title:'Readiness vs Soreness', data:wellnessData, type:'wellness'}]} renderItem={renderGraph} horizontal pagingEnabled showsHorizontalScrollIndicator={false} onScroll={handleScroll} keyExtractor={item => item.id} />
             <View style={styles.dotRow}>{[0, 1].map((i) => (<View key={i} style={[styles.dot, activeGraphIndex === i ? styles.activeDot : styles.inactiveDot]} />))}</View>
           </View>
         </View>
@@ -243,8 +243,18 @@ export default function ProfileScreen() {
         {/* WEEKLY PRs */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>PRs Hit This Week</Text>
-          {weeklyPRs.length === 0 ? <View style={styles.emptyPR}><Text style={styles.emptyPRText}>No PRs this week.</Text></View> : (
-            <ScrollView horizontal showsHorizontalScrollIndicator={false}>{weeklyPRs.map((pr, i) => (<View key={i} style={styles.prCard}><Ionicons name="trophy" size={18} color="#FFD700" /><Text style={styles.prWeight}>{pr.weight}kg</Text><Text style={styles.prName} numberOfLines={1}>{pr.name}</Text></View>))}</ScrollView>
+          {weeklyPRs.length === 0 ? (
+             <View style={styles.emptyPR}><Text style={styles.emptyPRText}>No PRs this week.</Text></View> 
+          ) : (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+              {weeklyPRs.map((pr, i) => (
+                <View key={i} style={styles.prCard}>
+                  <Ionicons name="trophy" size={18} color="#FFD700" />
+                  <Text style={styles.prWeight}>{pr.weight}{unit}</Text>
+                  <Text style={styles.prName} numberOfLines={1}>{pr.name}</Text>
+                </View>
+              ))}
+            </ScrollView>
           )}
         </View>
 
@@ -266,7 +276,6 @@ export default function ProfileScreen() {
         <View style={{ height: 40 }} />
       </ScrollView>
 
-      {/* USERNAME MODAL */}
       <Modal visible={usernameModalVisible} transparent animationType="fade">
         <View style={styles.centerModalOverlay}>
           <View style={styles.editBox}>
