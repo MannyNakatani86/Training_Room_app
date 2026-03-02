@@ -23,7 +23,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUser } from './_layout';
 
 const { width } = Dimensions.get('window');
-const GROUP_ORDER = ["Primer", "Power Movements", "Main Lifts", "Accessories"];
+const GROUP_ORDER = ["Primer", "Main Lifts", "Power Movements", "Accessories"];
 const LEADERBOARD_LIST = ["Bench Press", "Back Squat", "Front Squat", "Incline Bench Press", "Deadlift", "Clean", "Snatch", "Hang Clean", "Hang Snatch", "Block Clean", "Block Snatch", "Push Press", "Power Jerk", "Split Jerk", "Trap Bar Deadlift"];
 
 export default function ActiveWorkoutScreen() {
@@ -93,7 +93,6 @@ export default function ActiveWorkoutScreen() {
     try {
       const docRef = doc(db, "customers", user.uid, "workouts", todayStr);
       
-      // Update Leaderboard for PRs
       for (const ex of exercises) {
         if (LEADERBOARD_LIST.includes(ex.name) && ex.loggedWeights) {
           const maxWeight = Math.max(...ex.loggedWeights.map(w => parseFloat(w) || 0));
@@ -124,7 +123,11 @@ export default function ActiveWorkoutScreen() {
     return (
       <View style={[styles.container, { paddingTop: insets.top, paddingHorizontal: 30, justifyContent: 'center' }]}>
         <Text style={styles.checkInTitle}>Pre-Workout Check-in</Text>
-        <Text style={styles.checkInLabel}>Readiness to train (1-10)</Text>
+        
+        {/* UPDATED READINESS LABEL */}
+        <Text style={styles.checkInLabel}>
+          {"Training Readiness (1-10)\n1 = Exhausted • 10 = Fully Ready"}
+        </Text>
         <View style={styles.scaleRow}>
           {[1,2,3,4,5,6,7,8,9,10].map(num => (
             <TouchableOpacity key={num} onPress={() => setReadiness(num)} style={[styles.scaleBtn, readiness === num && styles.scaleBtnActive]}>
@@ -132,7 +135,11 @@ export default function ActiveWorkoutScreen() {
             </TouchableOpacity>
           ))}
         </View>
-        <Text style={[styles.checkInLabel, { marginTop: 40 }]}>Soreness Level (1-10)</Text>
+
+        {/* UPDATED SORENESS LABEL */}
+        <Text style={[styles.checkInLabel, { marginTop: 40 }]}>
+          {"Muscle Soreness (1-10)\n1 = Fresh • 10 = Very Sore"}
+        </Text>
         <View style={styles.scaleRow}>
           {[1,2,3,4,5,6,7,8,9,10].map(num => (
             <TouchableOpacity key={num} onPress={() => setSoreness(num)} style={[styles.scaleBtn, soreness === num && styles.scaleBtnActive]}>
@@ -140,6 +147,7 @@ export default function ActiveWorkoutScreen() {
             </TouchableOpacity>
           ))}
         </View>
+
         <TouchableOpacity style={styles.startActualBtn} onPress={async () => {
           const user = auth.currentUser;
           if (user) await updateDoc(doc(db, "customers", user.uid, "workouts", todayStr), { isStarted: true });
@@ -223,21 +231,12 @@ export default function ActiveWorkoutScreen() {
           <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
             <View style={styles.confirmBox}>
               <View style={styles.confirmIconCircle}><Ionicons name="trophy" size={40} color="#c62828" /></View>
-              <Text style={styles.confirmTitle}>Workout Options</Text>
+              <Text style={styles.confirmTitle}>Workout Complete!</Text>
               <View style={styles.tonnageBadge}><Text style={styles.tonnageLabel}>TOTAL VOLUME</Text><Text style={styles.tonnageValue}>{calculateSessionTonnage().toLocaleString()} {unit}</Text></View>
               <TextInput style={styles.memoInput} placeholder="How did the session feel?" multiline value={sessionMemo} onChangeText={setSessionMemo} />
-              
-              <TouchableOpacity style={styles.confirmFinishBtn} onPress={handleFinishWorkout}>
-                <Text style={styles.confirmFinishText}>Finish & Save</Text>
-              </TouchableOpacity>
-              
-              <TouchableOpacity style={styles.laterBtn} onPress={() => router.replace('/(main)/(tabs)')}>
-                <Text style={styles.laterBtnText}>Complete Later</Text>
-              </TouchableOpacity>
-              
-              <TouchableOpacity style={{ marginTop: 10 }} onPress={() => setFinishModalVisible(false)}>
-                <Text style={{ color: '#666', fontWeight: '600' }}>Keep Lifting</Text>
-              </TouchableOpacity>
+              <TouchableOpacity style={styles.confirmFinishBtn} onPress={handleFinishWorkout}><Text style={styles.confirmFinishText}>Finish & Save</Text></TouchableOpacity>
+              <TouchableOpacity style={styles.laterBtn} onPress={() => router.replace('/(main)/(tabs)')}><Text style={styles.laterBtnText}>Complete Later</Text></TouchableOpacity>
+              <TouchableOpacity style={{ marginTop: 10 }} onPress={() => setFinishModalVisible(false)}><Text style={{ color: '#666', fontWeight: '600' }}>Keep Lifting</Text></TouchableOpacity>
             </View>
           </KeyboardAvoidingView>
         </View>
@@ -268,7 +267,10 @@ const styles = StyleSheet.create({
   finishBtn: { backgroundColor: '#000', height: 60, borderRadius: 15, justifyContent: 'center', alignItems: 'center' },
   finishBtnText: { color: '#FFF', fontSize: 16, fontWeight: '900', letterSpacing: 1 },
   checkInTitle: { fontSize: 26, fontWeight: '900', marginBottom: 40, textAlign: 'center' },
-  checkInLabel: { fontSize: 14, fontWeight: '700', color: '#666', marginBottom: 15, textTransform: 'uppercase' },
+  
+  // UPDATED checkInLabel for middle alignment
+  checkInLabel: { fontSize: 14, fontWeight: '700', color: '#666', marginBottom: 15, textTransform: 'uppercase', textAlign: 'center' },
+  
   scaleRow: { flexDirection: 'row', justifyContent: 'space-between', width: '100%' },
   scaleBtn: { width: 30, height: 30, borderRadius: 15, backgroundColor: '#E5E5EA', justifyContent: 'center', alignItems: 'center' },
   scaleBtnActive: { backgroundColor: '#c62828' },
@@ -281,10 +283,7 @@ const styles = StyleSheet.create({
   confirmIconCircle: { width: 70, height: 70, borderRadius: 35, backgroundColor: '#FFEBEE', justifyContent: 'center', alignItems: 'center', marginBottom: 15 },
   confirmTitle: { fontSize: 20, fontWeight: 'bold', marginBottom: 15 },
   confirmFinishBtn: { backgroundColor: '#000', width: '100%', padding: 16, borderRadius: 12, alignItems: 'center', marginBottom: 10 },
-  
-  // FIXED STYLE: Confirm Finish Text
   confirmFinishText: { color: '#FFF', fontWeight: 'bold', fontSize: 16 },
-
   laterBtn: { backgroundColor: '#F2F2F7', width: '100%', padding: 16, borderRadius: 12, alignItems: 'center', borderWidth: 1, borderColor: '#DDD' },
   laterBtnText: { color: '#000', fontWeight: '600' },
   tonnageBadge: { backgroundColor: '#F9F9FB', padding: 12, borderRadius: 12, alignItems: 'center', marginBottom: 15, width: '100%' },

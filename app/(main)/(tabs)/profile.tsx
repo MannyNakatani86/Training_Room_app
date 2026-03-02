@@ -32,19 +32,16 @@ export default function ProfileScreen() {
   const router = useRouter();
   const { fullName, handle, memberSince, profileImage, unit } = useUser();
   
-  // UI States
   const [uploading, setUploading] = useState(false);
   const [activeGraphIndex, setActiveGraphIndex] = useState(0);
   const [range, setRange] = useState<TimeRange>('week');
   
-  // Username Change States
   const [usernameModalVisible, setUsernameModalVisible] = useState(false);
   const [newUsername, setNewUsername] = useState('');
   const [isUpdatingUsername, setIsUpdatingUsername] = useState(false);
 
-  // Data States
   const [stats, setStats] = useState({ workoutCount: 0, consistency: 0, bestRank: '--', loading: true });
-  const [metrics, setMetrics] = useState({ weight: '--', height: '--', bodyFat: '--' });
+  const [metrics, setMetrics] = useState({ weight: '--', height: '--' });
   const [weeklyPRs, setWeeklyPRs] = useState<{name: string, weight: number}[]>([]);
   const [tonnageData, setTonnageData] = useState({ labels: ["-"], datasets: [{ data: [0] }] });
   const [wellnessData, setWellnessData] = useState({
@@ -62,19 +59,16 @@ export default function ProfileScreen() {
     const user = auth.currentUser;
     if (!user) return;
 
-    // 1. Listen for Body Metrics
     const unsubMetrics = onSnapshot(doc(db, "customers", user.uid, "health", "metrics"), (docSnap) => {
       if (docSnap.exists()) {
         const d = docSnap.data();
         setMetrics({ 
           weight: d.weight ? `${d.weight}${unit}` : '--', 
           height: d.height ? `${d.height}cm` : '--', 
-          bodyFat: d.bodyFat ? `${d.bodyFat}%` : '--' 
         });
       }
     });
 
-    // 2. Process Workout Data
     const fetchAndProcess = async () => {
       try {
         const workoutSnap = await getDocs(query(collection(db, "customers", user.uid, "workouts")));
@@ -83,13 +77,20 @@ export default function ProfileScreen() {
         allWorkouts.sort((a, b) => a.id.localeCompare(b.id));
 
         const now = new Date();
-        const startOfWeek = new Date(now); startOfWeek.setDate(now.getDate() - now.getDay()); startOfWeek.setHours(0,0,0,0);
+        
+        // --- 1. CALCULATE THE START OF THIS WEEK (MONDAY) ---
+        const currentDay = now.getDay(); // 0 (Sun) to 6 (Sat)
+        const daysToSubtract = currentDay === 0 ? 6 : currentDay - 1; // If Sun, go back 6. If Mon, 0.
+        const startOfMonday = new Date(now);
+        startOfMonday.setDate(now.getDate() - daysToSubtract);
+        startOfMonday.setHours(0, 0, 0, 0);
+
         const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
         const startOfYear = new Date(now.getFullYear(), 0, 1);
 
         const filtered = allWorkouts.filter(w => {
           const d = new Date(w.id);
-          if (range === 'week') return d >= startOfWeek;
+          if (range === 'week') return d >= startOfMonday;
           if (range === 'month') return d >= startOfMonth;
           return d >= startOfYear;
         });
@@ -128,18 +129,28 @@ export default function ProfileScreen() {
           ]
         });
 
+        // --- 2. CALCULATE PRs SINCE MONDAY ONLY ---
         const prMap: Record<string, number> = {};
         let tSched = 0, tAct = 0, fCount = 0;
+        
         allWorkouts.forEach(w => {
+          const workoutDate = new Date(w.id);
           if (w.isFinished) fCount++;
+          
           w.exercises?.forEach((ex: any) => {
             tSched += parseInt(ex.sets) || 0;
             tAct += ex.completedSetsCount || 0;
-            if (new Date(w.id) >= new Date(now.getTime() - 7*24*60*60*1000)) {
-              ex.loggedWeights?.forEach((wt: string) => { if (parseFloat(wt) > (prMap[ex.name] || 0)) prMap[ex.name] = parseFloat(wt); });
+            
+            // Only add to the PR list if workout happened this week (Starting Monday)
+            if (workoutDate >= startOfMonday) {
+              ex.loggedWeights?.forEach((wt: string) => {
+                const val = parseFloat(wt) || 0;
+                if (val > (prMap[ex.name] || 0)) prMap[ex.name] = val;
+              });
             }
           });
         });
+
         setWeeklyPRs(Object.keys(prMap).map(name => ({ name, weight: prMap[name] })));
         setStats({ workoutCount: fCount, consistency: tSched > 0 ? Math.round((tAct/tSched)*100) : 0, bestRank: fCount > 0 ? '#1' : '--', loading: false });
       } catch (e) { console.error(e); }
@@ -219,12 +230,11 @@ export default function ProfileScreen() {
           <TouchableOpacity style={styles.metricsCard} onPress={() => router.push('/(main)/body-metrics')}>
             <View style={styles.metricBox}><Text style={styles.metricVal}>{metrics.weight}</Text><Text style={styles.metricLabel}>Weight</Text></View>
             <View style={styles.metricDivider} /><View style={styles.metricBox}><Text style={styles.metricVal}>{metrics.height}</Text><Text style={styles.metricLabel}>Height</Text></View>
-            <View style={styles.metricDivider} /><View style={styles.metricBox}><Text style={styles.metricVal}>{metrics.bodyFat}</Text><Text style={styles.metricLabel}>Body Fat</Text></View>
             <Ionicons name="chevron-forward" size={20} color="#CCC" />
           </TouchableOpacity>
         </View>
 
-        {/* SWIPEABLE GRAPHS */}
+        {/* PERFORMANCE INSIGHTS */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Performance Insights</Text>
           <View style={styles.chartCard}>
@@ -242,9 +252,9 @@ export default function ProfileScreen() {
 
         {/* WEEKLY PRs */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>PRs Hit This Week</Text>
+          <Text style={styles.sectionTitle}>PRs Hit Since Monday</Text>
           {weeklyPRs.length === 0 ? (
-             <View style={styles.emptyPR}><Text style={styles.emptyPRText}>No PRs this week.</Text></View> 
+            <View style={styles.emptyPR}><Text style={styles.emptyPRText}>No PRs hit this week yet.</Text></View>
           ) : (
             <ScrollView horizontal showsHorizontalScrollIndicator={false}>
               {weeklyPRs.map((pr, i) => (
@@ -330,8 +340,11 @@ const styles = StyleSheet.create({
   prCard: { backgroundColor: '#FFF', padding: 15, borderRadius: 15, marginRight: 12, alignItems: 'center', width: 100, elevation: 2 },
   prWeight: { fontSize: 18, fontWeight: '900', color: '#000', marginTop: 5 },
   prName: { fontSize: 11, color: '#666', marginTop: 2 },
+  
+  // FIXED: Style for empty PR list
   emptyPR: { backgroundColor: '#FFF', padding: 20, borderRadius: 15, alignItems: 'center', borderStyle: 'dashed', borderWidth: 1, borderColor: '#CCC' },
   emptyPRText: { color: '#AAA', fontSize: 13 },
+  
   optionRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFF', padding: 15, borderRadius: 18, marginBottom: 10 },
   optionIconCircle: { width: 40, height: 40, borderRadius: 12, justifyContent: 'center', alignItems: 'center' },
   optionTitle: { fontSize: 16, fontWeight: '600' },

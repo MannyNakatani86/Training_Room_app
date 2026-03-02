@@ -1,6 +1,6 @@
 import { auth, db } from '@/fireBaseConfig';
 import { Ionicons } from '@expo/vector-icons';
-import { Stack, useRouter } from 'expo-router';
+import { Stack, usePathname, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { doc, onSnapshot, updateDoc } from 'firebase/firestore';
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
@@ -19,7 +19,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const { width } = Dimensions.get('window');
 const SIDEBAR_WIDTH = width * 0.75;
-const APP_VERSION = "v1.0.4";
+const APP_VERSION = "v1.0.0";
 
 // 1. THE GLOBAL ENGINE (Moved here so Settings can see it)
 const UserContext = createContext({ 
@@ -31,6 +31,7 @@ export const useUser = () => useContext(UserContext);
 export default function MainLayout() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const pathname = usePathname();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const slideAnim = useRef(new Animated.Value(0)).current;
   
@@ -39,6 +40,20 @@ export default function MainLayout() {
   const [memberSince, setMemberSince] = useState('');
   const [profileImage, setProfileImage] = useState('');
   const [unit, setUnit] = useState<'kg' | 'lbs'>('lbs');
+  const pagesWithCustomHeaders = [
+    '/programs', 
+    '/settings', 
+    '/updates', 
+    '/registered-exercises', 
+    '/exercise-history',
+    '/body-metrics',
+    '/active-workout',
+    '/change-password',
+    '/two-factor',
+    '/delete-account',
+    '/workout-history'
+  ];
+  const shouldHideHeader = pagesWithCustomHeaders.some(page => pathname.includes(page));
 
   useEffect(() => {
     const user = auth.currentUser;
@@ -110,13 +125,16 @@ export default function MainLayout() {
         <Animated.View style={[styles.mainWrapper, { transform: [{ translateX: contentTranslateX }] }]}>
           {isMenuOpen && <Animated.View style={[styles.overlay, { opacity: overlayOpacity }]}><Pressable style={{ flex: 1 }} onPress={toggleMenu} /></Animated.View>}
           
-          <View style={[styles.topBlock, { paddingTop: insets.top, height: 70 + insets.top }]}>
-            <View style={styles.headerContent}>
-              <View style={styles.headerSide}><TouchableOpacity onPress={toggleMenu} hitSlop={{ top: 20, bottom: 20, left: 20, right: 20 }}><Ionicons name="menu" size={32} color="#FFFFFF" /></TouchableOpacity></View>
-              <View style={styles.headerCenter}><Image source={require('../../assets/training_room_logo2.png')} style={styles.logo} resizeMode="contain" /></View>
-              <View style={styles.headerSide} />
+          {/* 3. CONDITIONAL HEADER RENDERING */}
+          {!shouldHideHeader && (
+            <View style={[styles.topBlock, { paddingTop: insets.top, height: 70 + insets.top }]}>
+              <View style={styles.headerContent}>
+                <View style={styles.headerSide}><TouchableOpacity onPress={toggleMenu} hitSlop={{ top: 20, bottom: 20, left: 20, right: 20 }}><Ionicons name="menu" size={32} color="#FFFFFF" /></TouchableOpacity></View>
+                <View style={styles.headerCenter}><Image source={require('../../assets/training_room_logo2.png')} style={styles.logo} resizeMode="contain" /></View>
+                <View style={styles.headerSide} />
+              </View>
             </View>
-          </View>
+          )}
 
           {/* This renders either the Tabs or the Sub-pages (Settings/Updates) */}
           <Stack screenOptions={{ headerShown: false }} />
