@@ -24,12 +24,15 @@ const APP_VERSION = "v1.0.0";
 // 1. THE GLOBAL ENGINE (Moved here so Settings can see it)
 const UserContext = createContext({ 
   fullName: '', handle: '', memberSince: '', profileImage: '', 
-  unit: 'lbs', toggleUnit: (u: 'kg' | 'lbs') => {} 
+  unit: 'lbs', toggleUnit: (u: 'kg' | 'lbs') => {},
+  headerHeight: 70
 });
 export const useUser = () => useContext(UserContext);
 
 export default function MainLayout() {
   const insets = useSafeAreaInsets();
+  const HEADER_BASE_HEIGHT = 70;
+  const headerHeight = HEADER_BASE_HEIGHT + insets.top;
   const router = useRouter();
   const pathname = usePathname();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -51,7 +54,8 @@ export default function MainLayout() {
     '/change-password',
     '/two-factor',
     '/delete-account',
-    '/workout-history'
+    '/workout-history',
+    '/log-exercise'
   ];
   const shouldHideHeader = pagesWithCustomHeaders.some(page => pathname.includes(page));
 
@@ -96,7 +100,7 @@ export default function MainLayout() {
   const overlayOpacity = slideAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 1] });
 
   return (
-    <UserContext.Provider value={{ fullName, handle, memberSince, profileImage, unit, toggleUnit }}>
+    <UserContext.Provider value={{ fullName, handle, memberSince, profileImage, unit, toggleUnit, headerHeight }}>
       <View style={styles.container}>
         <StatusBar style="light" />
 
@@ -127,7 +131,7 @@ export default function MainLayout() {
           
           {/* 3. CONDITIONAL HEADER RENDERING */}
           {!shouldHideHeader && (
-            <View style={[styles.topBlock, { paddingTop: insets.top, height: 70 + insets.top }]}>
+            <View style={[styles.topBlock, { paddingTop: insets.top, height: headerHeight, justifyContent: 'center' }]}>
               <View style={styles.headerContent}>
                 <View style={styles.headerSide}><TouchableOpacity onPress={toggleMenu} hitSlop={{ top: 20, bottom: 20, left: 20, right: 20 }}><Ionicons name="menu" size={32} color="#FFFFFF" /></TouchableOpacity></View>
                 <View style={styles.headerCenter}><Image source={require('../../assets/training_room_logo2.png')} style={styles.logo} resizeMode="contain" /></View>

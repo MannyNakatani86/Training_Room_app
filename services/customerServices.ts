@@ -1,4 +1,4 @@
-import { collection, deleteDoc, doc, getDocs, query, serverTimestamp, setDoc, updateDoc, where } from "firebase/firestore";
+import { addDoc, collection, deleteDoc, doc, getDocs, query, serverTimestamp, setDoc, updateDoc, where } from "firebase/firestore";
 import { deleteObject, getDownloadURL, ref, uploadBytes } from "firebase/storage";
 import { db, storage } from '../fireBaseConfig'; // This imports the database you initialized
 
@@ -102,3 +102,15 @@ export const updateUsername = async (userId: string, newUsername: string) => {
   }
 };
 
+export const saveMeetResult = async (userId: string, meetData: any) => {
+  try {
+    const meetRef = collection(db, "customers", userId, "meets");
+    await addDoc(meetRef, {
+      ...meetData,
+      createdAt: serverTimestamp(),
+    });
+    return { success: true };
+  } catch (error) {
+    return { success: false, error };
+  }
+};

@@ -7,7 +7,7 @@ export interface Exercise {
   sets: string;
   reps: string[];
   groupTitle?: string;
-  repUnit?: 'ea' | 'secs' | null;
+  repUnits?: string[];
   supersetId?: string;
   loggedWeights?: string[];
   memo?: string;

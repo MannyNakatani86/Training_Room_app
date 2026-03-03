@@ -12,7 +12,7 @@ const DEFAULT_EXERCISES = ["Bench Press", "Back Squat", "Front Squat", "Incline 
 export default function RegisteredExercisesScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { unit } = useUser(); 
+  const { unit, headerHeight } = useUser(); 
   
   const [exercises, setExercises] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -77,9 +77,11 @@ export default function RegisteredExercisesScreen() {
   };
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()}><Ionicons name="chevron-back" size={26} color="#000" /></TouchableOpacity>
+    <View style={styles.container}>
+      <View style={[styles.header, { height: headerHeight, paddingTop: insets.top }]}>
+        <TouchableOpacity onPress={() => router.back()}>
+            <Ionicons name="chevron-back" size={26} color="#000" />
+        </TouchableOpacity>
         <Text style={styles.headerTitle}>Exercise Library</Text>
         <View style={{ width: 40 }} />
       </View>
@@ -129,8 +131,16 @@ export default function RegisteredExercisesScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F2F2F7' },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 15, backgroundColor: '#FFF', borderBottomWidth: 1, borderBottomColor: '#EEE' },
-  headerTitle: { fontSize: 17, fontWeight: '700' },
+  header: {
+    flexDirection: 'row', 
+    justifyContent: 'space-between', 
+    alignItems: 'center', 
+    paddingHorizontal: 15, 
+    backgroundColor: '#FFF',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E5E7',
+  },
+  headerTitle: { fontSize: 18, fontWeight: '800', color: '#000' },
   row: { 
     backgroundColor: '#FFF', 
     borderRadius: 20, 

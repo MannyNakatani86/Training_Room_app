@@ -23,13 +23,13 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUser } from './_layout';
 
 const { width } = Dimensions.get('window');
-const GROUP_ORDER = ["Primer", "Main Lifts", "Power Movements", "Accessories"];
+const GROUP_ORDER = ["Primer", "Power Movements", "Main Lifts", "Accessories"];
 const LEADERBOARD_LIST = ["Bench Press", "Back Squat", "Front Squat", "Incline Bench Press", "Deadlift", "Clean", "Snatch", "Hang Clean", "Hang Snatch", "Block Clean", "Block Snatch", "Push Press", "Power Jerk", "Split Jerk", "Trap Bar Deadlift"];
 
 export default function ActiveWorkoutScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { fullName, unit } = useUser();
+  const { fullName, unit, headerHeight } = useUser();
   
   const [exercises, setExercises] = useState<Exercise[]>([]);
   const [loading, setLoading] = useState(true);
@@ -171,9 +171,15 @@ export default function ActiveWorkoutScreen() {
   });
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
+    <View style={styles.container}>
       <StatusBar style="dark" />
-      <View style={styles.header}><View style={{ width: 28 }} /><Text style={styles.headerTitle}>ACTIVE SESSION</Text><View style={{ width: 28 }} /></View>
+      <View style={[styles.header, { height: headerHeight, paddingTop: insets.top }]}>
+        <TouchableOpacity onPress={() => router.back()}>
+            <Ionicons name="chevron-back" size={26} color="#000" />
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>Active Session</Text>
+        <View style={{ width: 40 }} />
+      </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         {sortedGroupNames.map((groupName) => {
@@ -208,7 +214,7 @@ export default function ActiveWorkoutScreen() {
                     >
                       <View style={styles.exerciseInfo}>
                         <Text style={[styles.exName, isDone && styles.textDone]}>{ex.name}</Text>
-                        <Text style={styles.exMeta}>{ex.sets}x{Array.isArray(ex.reps) ? ex.reps.join(',') : ex.reps}{ex.repUnit ? ` ${ex.repUnit}` : ''}</Text>
+                        <Text style={styles.exMeta}> {ex.sets}x{Array.isArray(ex.reps) ? ex.reps.join(',') : ex.reps}{Array.isArray(ex.repUnits) && ex.repUnits.length > 0 ? ` ${ex.repUnits.join(' ')}` : ''}</Text>
                       </View>
                       <View style={styles.statusCircle}><Ionicons name={isDone ? "checkmark" : "chevron-forward"} size={18} color="#FFF" /></View>
                     </TouchableOpacity>
@@ -248,8 +254,16 @@ export default function ActiveWorkoutScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F2F2F7' },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 15, backgroundColor: '#FFF', borderBottomWidth: 1, borderBottomColor: '#E5E5EA' },
-  headerTitle: { fontSize: 15, fontWeight: '800', color: '#000', letterSpacing: 1 },
+  header: {
+    flexDirection: 'row', 
+    justifyContent: 'space-between', 
+    alignItems: 'center', 
+    paddingHorizontal: 15, 
+    backgroundColor: '#FFF',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E5E7',
+  },
+  headerTitle: { fontSize: 18, fontWeight: '800', color: '#000' },
   scrollContent: { padding: 20 },
   groupContainer: { width: '100%', alignItems: 'center' },
   groupHeaderBox: { backgroundColor: '#FFF', width: '100%', paddingVertical: 14, paddingHorizontal: 18, borderTopLeftRadius: 15, borderTopRightRadius: 15, borderBottomWidth: 1, borderBottomColor: '#F2F2F7' },

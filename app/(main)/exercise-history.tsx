@@ -12,6 +12,7 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useUser } from './_layout';
 
 interface HistoryEntry {
   date: string;
@@ -24,6 +25,7 @@ interface HistoryEntry {
 export default function ExerciseHistoryScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const {headerHeight} = useUser();
   const { exerciseName } = useLocalSearchParams<{ exerciseName: string }>();
   
   const [history, setHistory] = useState<HistoryEntry[]>([]);
@@ -75,9 +77,11 @@ export default function ExerciseHistoryScreen() {
   if (loading) return <View style={styles.center}><ActivityIndicator size="large" color="#c62828" /></View>;
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}><Ionicons name="chevron-back" size={26} color="#000" /></TouchableOpacity>
+    <View style={styles.container}>
+      <View style={[styles.header, { height: headerHeight, paddingTop: insets.top }]}>
+        <TouchableOpacity onPress={() => router.back()}>
+            <Ionicons name="chevron-back" size={26} color="#000" />
+        </TouchableOpacity>
         <View style={styles.headerTitleContainer}>
           <Text style={styles.headerSubtitle}>Exercise History</Text>
           <Text style={styles.headerTitle} numberOfLines={1}>{exerciseName}</Text>
@@ -126,10 +130,18 @@ export default function ExerciseHistoryScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F2F2F7' },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 15, paddingVertical: 15, backgroundColor: '#FFF', borderBottomWidth: 1, borderBottomColor: '#EEE' },
+  header: {
+    flexDirection: 'row', 
+    justifyContent: 'space-between', 
+    alignItems: 'center', 
+    paddingHorizontal: 15, 
+    backgroundColor: '#FFF',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E5E7',
+  },
+  headerTitle: { fontSize: 18, fontWeight: '800', color: '#000' },
   headerTitleContainer: { flex: 1, alignItems: 'center' },
   headerSubtitle: { fontSize: 10, color: '#888', fontWeight: 'bold', textTransform: 'uppercase' },
-  headerTitle: { fontSize: 18, fontWeight: '800', color: '#000' },
   backBtn: { width: 40, height: 40, justifyContent: 'center' },
   listContent: { padding: 20 },
   historyCard: { backgroundColor: '#FFF', borderRadius: 20, padding: 20, marginBottom: 15, elevation: 2 },

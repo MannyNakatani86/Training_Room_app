@@ -65,8 +65,8 @@ export default function WorkoutHistoryScreen() {
   if (loading) return <View style={styles.center}><ActivityIndicator size="large" color="#c62828" /></View>;
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
-      <View style={styles.header}>
+    <View style={styles.container}>
+      <View style={[styles.header, { paddingTop: insets.top }]}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}><Ionicons name="chevron-back" size={26} color="#000" /></TouchableOpacity>
         <Text style={styles.headerTitle}>Session History</Text>
         <View style={{ width: 40 }} />

@@ -4,7 +4,17 @@ import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { collection, doc, getDocs, onSnapshot, query, updateDoc } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
-import { Alert, Dimensions, LayoutAnimation, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, UIManager, View } from 'react-native';
+import {
+  Alert,
+  Dimensions, KeyboardAvoidingView,
+  LayoutAnimation,
+  Modal,
+  Platform,
+  Pressable,
+  ScrollView, StyleSheet, Text, TextInput, TouchableOpacity,
+  UIManager,
+  View
+} from 'react-native';
 import { Calendar } from 'react-native-calendars';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -33,13 +43,14 @@ export default function WorkoutsScreen() {
   const [allKnownExercises, setAllKnownExercises] = useState<string[]>(LEADERBOARD_EXERCISES);
   const [filteredSuggestions, setFilteredSuggestions] = useState<string[]>([]);
 
+  // Modal State
   const [modalVisible, setModalVisible] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [newExName, setNewExName] = useState('');
   const [newGroupTitle, setNewGroupTitle] = useState('Main Lifts');
   const [newSets, setNewSets] = useState('');
   const [repsArray, setRepsArray] = useState<string[]>([]);
-  const [repUnit, setRepUnit] = useState<'ea' | 'secs' | null>(null);
+  const [repUnits, setRepUnits] = useState<string[]>([]); // Array state for multiple selection
 
   const getFormattedStr = (date: Date) => {
     const offset = date.getTimezoneOffset();
@@ -50,6 +61,12 @@ export default function WorkoutsScreen() {
   const selectedStr = getFormattedStr(selectedDate);
   const todayStr = getFormattedStr(new Date());
   const toTitleCase = (str: string) => str.replace(/\b\w/g, (char) => char.toUpperCase());
+
+  const formatMeta = (item: Exercise) => {
+    const repsPart = Array.isArray(item.reps) ? item.reps.join(',') : item.reps;
+    const units = Array.isArray(item.repUnits) ? item.repUnits.join(' ') : '';
+    return `${item.sets}x${repsPart}${units ? ' ' + units : ''}`;
+  };
 
   const getSupersetColor = (id: string) => {
     const colors = ['#007AFF', '#5856D6', '#AF52DE', '#FF9500', '#FF2D55', '#5AC8FA', '#34C759'];
@@ -116,6 +133,12 @@ export default function WorkoutsScreen() {
     setRepsArray(newArr);
   };
 
+  const toggleUnitSelection = (u: string) => {
+    setRepUnits((prev) => 
+      prev.includes(u) ? prev.filter(item => item !== u) : [...prev, u]
+    );
+  };
+
   const toggleSuperset = async (ex1: Exercise, ex2: Exercise) => {
     const user = auth.currentUser;
     if (!user) return;
@@ -133,7 +156,14 @@ export default function WorkoutsScreen() {
     if (!newExName || !newSets || repsArray.some(r => r === '')) return Alert.alert("Error", "Fill all fields");
     const user = auth.currentUser;
     if (user) {
-      const data: Exercise = { id: editingId || Date.now().toString(), name: newExName.trim(), sets: newSets, reps: repsArray, groupTitle: newGroupTitle, repUnit };
+      const data: Exercise = { 
+        id: editingId || Date.now().toString(), 
+        name: newExName.trim(), 
+        sets: newSets, 
+        reps: repsArray, 
+        groupTitle: newGroupTitle, 
+        repUnits: repUnits 
+      };
       const res = editingId ? await updateExerciseInDate(user.uid, selectedStr, data) : await addExerciseToDate(user.uid, selectedStr, data);
       if (res.success) closeModal();
     }
@@ -142,7 +172,14 @@ export default function WorkoutsScreen() {
   const closeModal = () => {
     setModalVisible(false); setEditingId(null);
     setNewExName(''); setNewSets(''); setRepsArray([]); setNewGroupTitle('Main Lifts');
-    setRepUnit(null); setFilteredSuggestions([]);
+    setRepUnits([]); setFilteredSuggestions([]);
+  };
+
+  const executeUnlock = async () => {
+    const user = auth.currentUser;
+    if (user) {
+      await updateDoc(doc(db, "customers", user.uid, "workouts", selectedStr), { isFinished: false });
+    }
   };
 
   const groupedExercises = exercises.reduce((groups: { [key: string]: Exercise[] }, ex) => {
@@ -205,35 +242,26 @@ export default function WorkoutsScreen() {
 
                   return (
                     <View key={item.id} style={{ zIndex: groupItems.length - idx }}>
-                      <View style={[
-                        styles.exerciseRow,
-                        hasSuperset ? { 
-                          borderLeftWidth: 1.5, borderRightWidth: 1.5, borderColor: ssColor,
-                          borderTopWidth: isFirstInSS ? 1.5 : 0,
-                          borderBottomWidth: isLastInSS ? 1.5 : 0,
-                          borderTopLeftRadius: isFirstInSS ? 15 : 0,
-                          borderTopRightRadius: isFirstInSS ? 15 : 0,
-                          borderBottomLeftRadius: isLastInSS ? 15 : 0,
-                          borderBottomRightRadius: isLastInSS ? 15 : 0,
-                          marginBottom: isLastInSS ? 15 : 0, 
-                        } : { marginBottom: 15 } // GAP WHEN NOT SUPERSET
-                      ]}>
+                      <View style={[styles.exerciseRow, hasSuperset ? { borderLeftWidth: 1.5, borderRightWidth: 1.5, borderColor: ssColor, borderTopWidth: isFirstInSS ? 1.5 : 0, borderBottomWidth: isLastInSS ? 1.5 : 0, borderTopLeftRadius: isFirstInSS ? 15 : 0, borderTopRightRadius: isFirstInSS ? 15 : 0, borderBottomLeftRadius: isLastInSS ? 15 : 0, borderBottomRightRadius: isLastInSS ? 15 : 0, marginBottom: isLastInSS ? 15 : 0 } : { marginBottom: 15 }]}>
                         <View style={styles.exerciseInfo}>
                           <Text style={[styles.exerciseName, isFinished && { color: '#888' }]}>{item.name}</Text>
-                          <Text style={styles.exerciseMeta}>{item.sets}x{item.reps.join(',')}{item.repUnit ? ` ${item.repUnit}` : ''}</Text>
+                          <Text style={styles.exerciseMeta}>{formatMeta(item)}</Text>
                         </View>
                         {!isFinished && (
                           <View style={styles.actionRow}>
-                            <TouchableOpacity onPress={() => { setEditingId(item.id); setNewExName(item.name); setNewSets(item.sets); setRepsArray(item.reps); setNewGroupTitle(item.groupTitle || 'Main Lifts'); setRepUnit(item.repUnit || null); setModalVisible(true); }}><Ionicons name="pencil" size={18} color="#007AFF" /></TouchableOpacity>
+                            <TouchableOpacity onPress={() => { 
+                                setEditingId(item.id); setNewExName(item.name); 
+                                setNewSets(item.sets); setRepsArray(item.reps); 
+                                setNewGroupTitle(item.groupTitle || 'Main Lifts'); 
+                                setRepUnits(Array.isArray(item.repUnits) ? item.repUnits : []); 
+                                setModalVisible(true); 
+                            }}><Ionicons name="pencil" size={18} color="#007AFF" /></TouchableOpacity>
                             <TouchableOpacity onPress={() => { Alert.alert("Delete", "Remove?", [{ text: "Cancel" }, { text: "Delete", style: "destructive", onPress: async () => { const user = auth.currentUser; if (user) await deleteExerciseFromDate(user.uid, selectedStr, item.id); }}]); }}><Ionicons name="trash" size={18} color="#FF3B30" /></TouchableOpacity>
                           </View>
                         )}
                       </View>
-
                       {!isFinished && nextItem && isSupersetEligible && (
-                        <TouchableOpacity style={styles.ssLinkBtn} onPress={() => toggleSuperset(item, nextItem)}>
-                          <Ionicons name={isSameSSAsNext ? "remove" : "add"} size={20} color={isSameSSAsNext ? getSupersetColor(item.supersetId!) : "#CCC"} />
-                        </TouchableOpacity>
+                        <TouchableOpacity style={styles.ssLinkBtn} onPress={() => toggleSuperset(item, nextItem)}><Ionicons name={isSameSSAsNext ? "remove" : "add"} size={18} color={isSameSSAsNext ? getSupersetColor(item.supersetId!) : "#CCC"} /></TouchableOpacity>
                       )}
                     </View>
                   );
@@ -245,16 +273,11 @@ export default function WorkoutsScreen() {
         <View style={{ height: 200 }} />
       </ScrollView>
 
-      {/* FOOTER & MODAL stay same */}
       <View style={[styles.footer, { paddingBottom: insets.bottom + 15 }]}>
         {!isFinished ? (
           <>
             <TouchableOpacity style={styles.addExButton} onPress={() => setModalVisible(true)}><Text style={styles.addExTitle}>Add Exercise</Text></TouchableOpacity>
-            {exercises.length > 0 && selectedStr === todayStr && (
-              <TouchableOpacity style={[styles.startLiftingButton, isStarted && { backgroundColor: '#c62828' }]} onPress={() => router.push('/(main)/active-workout')}>
-                <Text style={styles.startLiftingText}>{isStarted ? "Resume Workout" : "Start Workout"}</Text>
-              </TouchableOpacity>
-            )}
+            {exercises.length > 0 && selectedStr === todayStr && <TouchableOpacity style={[styles.startLiftingButton, isStarted && { backgroundColor: '#c62828' }]} onPress={() => router.push('/(main)/active-workout')}><Text style={styles.startLiftingText}>{isStarted ? "Resume Workout" : "Start Workout"}</Text></TouchableOpacity>}
           </>
         ) : (
           <TouchableOpacity style={styles.finishedBtn} onPress={() => { Alert.alert("Unlock Session?", "Redo or edit?", [{ text: "Cancel" }, { text: "Yes", onPress: async () => { const user = auth.currentUser; if (user) { await updateDoc(doc(db, "customers", user.uid, "workouts", selectedStr), { isFinished: false }); if (selectedStr === todayStr) router.push('/(main)/active-workout'); } } }]); }}>
@@ -264,20 +287,38 @@ export default function WorkoutsScreen() {
       </View>
 
       <Modal visible={modalVisible} animationType="slide" transparent={true}>
-        <View style={styles.modalOverlay}>
+        <Pressable style={styles.modalOverlay} onPress={closeModal} />
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={[styles.sheetContainer, { paddingBottom: insets.bottom + 20 }]}>
           <View style={styles.modalContent}>
+            <View style={styles.handle} />
             <Text style={styles.modalTitle}>{editingId ? "Edit Exercise" : "New Exercise"}</Text>
-            <TextInput style={styles.input} placeholder="Name" value={newExName} onChangeText={handleNameChange} autoCapitalize="words" />
-            <View style={styles.suggestionsRow}><ScrollView horizontal>{filteredSuggestions.map(s => (<TouchableOpacity key={s} style={styles.suggestionChip} onPress={() => {setNewExName(s); setFilteredSuggestions([]);}}><Text style={styles.suggestionText}>{s}</Text></TouchableOpacity>))}</ScrollView></View>
-            <TextInput style={styles.input} placeholder="Group" value={newGroupTitle} onChangeText={setNewGroupTitle} />
-            <View style={styles.suggestionsRow}><ScrollView horizontal>{QUICK_GROUPS.map(g => (<TouchableOpacity key={g} style={[styles.suggestionChip, newGroupTitle === g && { backgroundColor: '#c62828', borderColor: '#c62828' }]} onPress={() => setNewGroupTitle(g)}><Text style={[styles.suggestionText, newGroupTitle === g && { color: '#FFF' }]}>{g}</Text></TouchableOpacity>))}</ScrollView></View>
-            <TextInput style={styles.input} placeholder="Sets" keyboardType="numeric" value={newSets} onChangeText={handleSetsChange} />
-            <View style={styles.repsHeaderRow}><Text style={styles.label}>Sets</Text><View style={{flexDirection: 'row', gap: 5}}><TouchableOpacity style={[styles.unitToggle, repUnit === 'ea' && styles.unitToggleActive]} onPress={() => setRepUnit(repUnit === 'ea' ? null : 'ea')}><Text style={[styles.unitToggleText, repUnit === 'ea' && styles.unitToggleTextActive]}>ea</Text></TouchableOpacity><TouchableOpacity style={[styles.unitToggle, repUnit === 'secs' && styles.unitToggleActive]} onPress={() => setRepUnit(repUnit === 'secs' ? null : 'secs')}><Text style={[styles.unitToggleText, repUnit === 'secs' && styles.unitToggleTextActive]}>secs</Text></TouchableOpacity><TouchableOpacity style={styles.allBtn} onPress={() => setRepsArray(new Array(repsArray.length).fill(repsArray[0]))}><Text style={styles.allBtnText}>Set 1 for all</Text></TouchableOpacity></View></View>
-            <View style={styles.repsGrid}>{repsArray.map((r, i) => (<View key={i} style={styles.repBox}><Text style={styles.repLabel}>Set {i+1}</Text><TextInput style={styles.repInput} keyboardType="numeric" value={r} placeholder="0" onChangeText={(t) => { const a = [...repsArray]; a[i] = t; setRepsArray(a); }} /></View>))}</View>
-            <TouchableOpacity onPress={handleSave} style={styles.saveBtn}><Text style={styles.saveBtnText}>Save</Text></TouchableOpacity>
-            <TouchableOpacity onPress={closeModal} style={styles.cancelBtn}><Text>Cancel</Text></TouchableOpacity>
+            <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+              <Text style={styles.label}>Exercise Name</Text>
+              <TextInput style={styles.input} placeholder="Name" value={newExName} onChangeText={handleNameChange} autoCapitalize="words" />
+              {filteredSuggestions.length > 0 && (
+                <View style={styles.suggestionsRow}><ScrollView horizontal showsHorizontalScrollIndicator={false}>{filteredSuggestions.map(s => (<TouchableOpacity key={s} style={styles.suggestionChip} onPress={() => {setNewExName(s); setFilteredSuggestions([]);}}><Text style={styles.suggestionText}>{s}</Text></TouchableOpacity>))}</ScrollView></View>
+              )}
+              <Text style={styles.label}>Workout Group</Text>
+              <TextInput style={styles.input} placeholder="Group" value={newGroupTitle} onChangeText={setNewGroupTitle} />
+              <View style={styles.groupChipsGrid}>{QUICK_GROUPS.map(g => (<TouchableOpacity key={g} style={[styles.suggestionChip, newGroupTitle === g && { backgroundColor: '#c62828', borderColor: '#c62828' }]} onPress={() => setNewGroupTitle(g)}><Text style={[styles.suggestionText, newGroupTitle === g && { color: '#FFF' }]}>{g}</Text></TouchableOpacity>))}</View>
+              <Text style={styles.label}>Sets</Text>
+              <TextInput style={styles.input} placeholder="e.g. 3" keyboardType="numeric" value={newSets} onChangeText={handleSetsChange} />
+              {repsArray.length > 0 && (
+                  <View style={styles.repsHeaderRow}>
+                      <Text style={styles.label}>Sets</Text>
+                      <View style={{flexDirection: 'row', gap: 5}}>
+                          <TouchableOpacity style={[styles.unitToggle, repUnits.includes('ea') && styles.unitToggleActive]} onPress={() => toggleUnitSelection('ea')}><Text style={[styles.unitToggleText, repUnits.includes('ea') && styles.unitToggleTextActive]}>ea</Text></TouchableOpacity>
+                          <TouchableOpacity style={[styles.unitToggle, repUnits.includes('secs') && styles.unitToggleActive]} onPress={() => toggleUnitSelection('secs')}><Text style={[styles.unitToggleText, repUnits.includes('secs') && styles.unitToggleTextActive]}>secs</Text></TouchableOpacity>
+                          <TouchableOpacity style={styles.allBtn} onPress={() => setRepsArray(new Array(repsArray.length).fill(repsArray[0]))}><Text style={styles.allBtnText}>Set 1 for all</Text></TouchableOpacity>
+                      </View>
+                  </View>
+              )}
+              <View style={styles.repsGrid}>{repsArray.map((r, i) => (<View key={i} style={styles.repBox}><Text style={styles.repLabel}>Set {i+1}</Text><TextInput style={styles.repInput} keyboardType="numeric" value={r} placeholder="0" onChangeText={(t) => { const a = [...repsArray]; a[i] = t; setRepsArray(a); }} /></View>))}</View>
+              <TouchableOpacity onPress={handleSave} style={styles.saveBtn}><Text style={styles.saveBtnText}>Save</Text></TouchableOpacity>
+              <View style={{ height: 40 }} />
+            </ScrollView>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
     </View>
   );
@@ -310,14 +351,17 @@ const styles = StyleSheet.create({
   startLiftingText: { color: '#FFF', fontWeight: 'bold' },
   finishedBtn: { backgroundColor: '#34C759', height: 55, borderRadius: 15, justifyContent: 'center', alignItems: 'center', flexDirection: 'row', gap: 10 },
   finishedBtnText: { color: '#FFF', fontWeight: 'bold', fontSize: 16 },
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: 20 },
-  modalContent: { backgroundColor: '#FFF', borderRadius: 20, padding: 25 },
-  modalTitle: { fontSize: 20, fontWeight: 'bold', marginBottom: 20 },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)' },
+  sheetContainer: { position: 'absolute', bottom: 0, width: '100%', maxHeight: '85%' },
+  modalContent: { backgroundColor: '#FFF', borderTopLeftRadius: 25, borderTopRightRadius: 25, paddingHorizontal: 25, paddingTop: 15 },
+  handle: { width: 40, height: 5, backgroundColor: '#EEE', borderRadius: 3, alignSelf: 'center', marginBottom: 15 },
+  modalTitle: { fontSize: 20, fontWeight: 'bold', marginBottom: 20, textAlign: 'center' },
   label: { fontSize: 11, color: '#888', marginBottom: 6, fontWeight: '800', textTransform: 'uppercase' },
   input: { backgroundColor: '#F2F2F7', padding: 12, borderRadius: 10, marginBottom: 10, fontSize: 16 },
   suggestionsRow: { marginBottom: 15, height: 35 },
-  suggestionChip: { backgroundColor: '#FFEBEE', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, marginRight: 8, borderWidth: 1, borderColor: '#FFCDD2' },
-  suggestionText: { color: '#c62828', fontSize: 12, fontWeight: '700' },
+  groupChipsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 15 },
+  suggestionChip: { backgroundColor: '#FFEBEE', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, marginRight: 8, borderWidth: 1, borderColor: '#FFCDD2', marginBottom: 5 },
+  suggestionText: { color: '#c62828', fontSize: 11, fontWeight: '700' },
   repsHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
   allBtn: { backgroundColor: '#F2F2F7', paddingVertical: 4, paddingHorizontal: 8, borderRadius: 6 },
   allBtnText: { fontSize: 9, fontWeight: 'bold', color: '#c62828' },
@@ -331,8 +375,7 @@ const styles = StyleSheet.create({
   repInput: { backgroundColor: '#F2F2F7', width: 55, height: 40, borderRadius: 8, textAlign: 'center', fontWeight: 'bold' },
   saveBtn: { backgroundColor: '#c62828', padding: 18, borderRadius: 12, alignItems: 'center' },
   saveBtnText: { color: '#FFF', fontWeight: 'bold', fontSize: 16 },
-  cancelBtn: { alignItems: 'center', marginTop: 15 },
   emptyContainer: { alignItems: 'center', marginTop: 40 },
   emptyText: { color: '#AAA' },
-  ssLinkBtn: { alignSelf: 'center', height: 32, width: 32, justifyContent: 'center', alignItems: 'center', marginVertical: -20, zIndex: 999, backgroundColor: '#FFF', borderRadius: 16, shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 2, elevation: 5, borderWidth: 1, borderColor: '#EEE' },
+  ssLinkBtn: { alignSelf: 'center', height: 32, width: 32, justifyContent: 'center', alignItems: 'center', marginVertical: -24, zIndex: 999, backgroundColor: '#FFF', borderRadius: 16, shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 2, elevation: 5, borderWidth: 1, borderColor: '#EEE' },
 });

@@ -17,8 +17,8 @@ export default function TwoFactorScreen() {
   };
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
-      <View style={styles.header}>
+    <View style={styles.container}>
+      <View style={[styles.header, { paddingTop: insets.top }]}>
         <TouchableOpacity onPress={() => router.back()}><Ionicons name="chevron-back" size={28} color="#000" /></TouchableOpacity>
         <Text style={styles.headerTitle}>Two-Factor Auth</Text>
         <View style={{ width: 28 }} />

@@ -5,7 +5,7 @@ import { collection, doc, getDoc, getDocs, query, updateDoc } from 'firebase/fir
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useUser } from './(tabs)/_layout';
+import { useUser } from './_layout';
 
 export default function LogExerciseScreen() {
   const router = useRouter();
@@ -100,8 +100,8 @@ export default function LogExerciseScreen() {
   if (loading) return <View style={styles.center}><ActivityIndicator color="#c62828" size="large" /></View>;
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
-      <View style={styles.header}>
+    <View style={styles.container }>
+      <View style={[styles.header, { paddingTop: insets.top }]}>
         <TouchableOpacity onPress={() => router.back()}><Ionicons name="chevron-back" size={28} color="#000" /></TouchableOpacity>
         <Text style={styles.headerTitle}>LOG SESSION</Text>
         <View style={{ width: 28 }} />

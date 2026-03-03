@@ -15,10 +15,12 @@ import {
   View
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useUser } from './_layout';
 
 export default function ChangePasswordScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const {headerHeight} = useUser();
 
   // Form State
   const [currentPassword, setCurrentPassword] = useState('');
@@ -73,21 +75,13 @@ export default function ChangePasswordScreen() {
   };
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
-      
-      {/* --- STANDARDIZED HEADER --- */}
-      <View style={styles.header}>
-        <TouchableOpacity 
-          onPress={() => router.back()} 
-          style={styles.backBtn}
-          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-        >
-          <Ionicons name="chevron-back" size={26} color="#000" />
-        </TouchableOpacity>
-        
-        <Text style={styles.headerTitle}>Change Password</Text>
-        
-        <View style={{ width: 40 }} /> 
+    <View style={styles.container}>
+      <View style={[styles.header, { height: headerHeight, paddingTop: insets.top }]}>
+          <TouchableOpacity onPress={() => router.back()}>
+              <Ionicons name="chevron-back" size={26} color="#000" />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Change Password</Text>
+          <View style={{ width: 40 }} />
       </View>
 
       <KeyboardAvoidingView 
@@ -169,19 +163,16 @@ export default function ChangePasswordScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F2F2F7' }, // Standard background color
-  
-  // Header styles now match SettingsScreen exactly
-  header: { 
+  header: {
     flexDirection: 'row', 
     justifyContent: 'space-between', 
     alignItems: 'center', 
     paddingHorizontal: 15, 
-    paddingVertical: 15, 
     backgroundColor: '#FFF',
     borderBottomWidth: 1,
-    borderBottomColor: '#E5E5E7'
+    borderBottomColor: '#E5E5E7',
   },
-  headerTitle: { fontSize: 17, fontWeight: '800', color: '#000' },
+  headerTitle: { fontSize: 18, fontWeight: '800', color: '#000' },
   backBtn: { width: 40, height: 40, justifyContent: 'center' },
   
   content: { padding: 30 },

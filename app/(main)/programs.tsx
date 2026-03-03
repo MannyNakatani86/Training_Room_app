@@ -11,6 +11,7 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useUser } from './_layout';
 
 const { width } = Dimensions.get('window');
 
@@ -23,7 +24,7 @@ const TIERS = [
     features: ['Personalized 4-week training plan'],
     color: '#000000',
     isPopular: false,
-    url: 'https://yourwebsite.com/buy-starter'
+    url: 'https://trainingroomcoach.com/tier'
   },
   {
     id: 'amateur',
@@ -36,7 +37,7 @@ const TIERS = [
     ],
     color: '#c62828', // Brand Red
     isPopular: true,
-    url: 'https://yourwebsite.com/buy-amateur'
+    url: 'https://trainingroomcoach.com/tier'
   },
   {
     id: 'pro',
@@ -50,13 +51,14 @@ const TIERS = [
     ],
     color: '#000000',
     isPopular: false,
-    url: 'https://yourwebsite.com/buy-pro'
+    url: 'https://trainingroomcoach.com/tier'
   }
 ];
 
 export default function ProgramsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const {headerHeight} = useUser();
 
   const handleSelectPlan = async (url: string) => {
     await WebBrowser.openBrowserAsync(url, {
@@ -66,13 +68,12 @@ export default function ProgramsScreen() {
   };
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
-      {/* HEADER */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-          <Ionicons name="chevron-back" size={26} color="#000" />
+    <View style={styles.container}>
+      <View style={[styles.header, { height: headerHeight, paddingTop: insets.top }]}>
+        <TouchableOpacity onPress={() => router.back()}>
+            <Ionicons name="chevron-back" size={26} color="#000" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Plans</Text>
+        <Text style={styles.headerTitle}>Your Updates</Text>
         <View style={{ width: 40 }} />
       </View>
 
@@ -132,12 +133,16 @@ export default function ProgramsScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F2F2F7' },
-  header: { 
-    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', 
-    paddingHorizontal: 15, paddingVertical: 15, backgroundColor: '#FFF',
-    borderBottomWidth: 1, borderBottomColor: '#E5E5E7'
+  header: {
+    flexDirection: 'row', 
+    justifyContent: 'space-between', 
+    alignItems: 'center', 
+    paddingHorizontal: 15, 
+    backgroundColor: '#FFF',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E5E7',
   },
-  headerTitle: { fontSize: 17, fontWeight: '800', color: '#000' },
+  headerTitle: { fontSize: 18, fontWeight: '800', color: '#000' },
   backBtn: { width: 40, height: 40, justifyContent: 'center' },
   
   scrollContent: { paddingBottom: 40 },

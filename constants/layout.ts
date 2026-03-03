@@ -1,0 +1,1 @@
+export const HEADER_BASE_HEIGHT = 70;

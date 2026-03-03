@@ -15,10 +15,12 @@ import {
   View
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useUser } from './_layout';
 
 export default function DeleteAccountScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const {headerHeight} = useUser();
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -71,11 +73,13 @@ export default function DeleteAccountScreen() {
   };
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()}><Ionicons name="chevron-back" size={28} color="#000" /></TouchableOpacity>
+    <View style={styles.container}>
+      <View style={[styles.header, { height: headerHeight, paddingTop: insets.top }]}>
+        <TouchableOpacity onPress={() => router.back()}>
+            <Ionicons name="chevron-back" size={26} color="#000" />
+        </TouchableOpacity>
         <Text style={styles.headerTitle}>Delete Account</Text>
-        <View style={{ width: 28 }} />
+        <View style={{ width: 40 }} />
       </View>
 
       <ScrollView contentContainerStyle={styles.content}>
@@ -115,8 +119,16 @@ export default function DeleteAccountScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#FFF' },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 20, borderBottomWidth: 1, borderBottomColor: '#F2F2F7' },
-  headerTitle: { fontSize: 18, fontWeight: '800' },
+  header: {
+    flexDirection: 'row', 
+    justifyContent: 'space-between', 
+    alignItems: 'center', 
+    paddingHorizontal: 15, 
+    backgroundColor: '#FFF',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E5E7',
+  },
+  headerTitle: { fontSize: 18, fontWeight: '800', color: '#000' },
   content: { padding: 25 },
   warningCard: { backgroundColor: '#FFF5F5', padding: 25, borderRadius: 20, alignItems: 'center', marginBottom: 35, borderWidth: 1, borderColor: '#FFE0E0' },
   warningTitle: { fontSize: 20, fontWeight: '900', color: '#000', marginTop: 10 },

@@ -102,9 +102,9 @@ export default function HomeScreen() {
     let lastGroupHeader = "";
 
     const formatMeta = (ex: Exercise) => {
-    const repsPart = Array.isArray(ex.reps) ? ex.reps.join(',') : ex.reps;
-    const unitPart = ex.repUnit ? ` ${ex.repUnit}` : '';
-    return `${ex.sets}x${repsPart}${unitPart}`;
+      const repsPart = Array.isArray(ex.reps) ? ex.reps.join(',') : ex.reps;
+      const units = Array.isArray(ex.repUnits) ? ex.repUnits.join(' ') : '';
+      return `${ex.sets}x${repsPart}${units ? ' ' + units : ''}`;
     };
 
     return (

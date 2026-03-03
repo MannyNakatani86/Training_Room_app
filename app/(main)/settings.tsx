@@ -17,6 +17,7 @@ import { useUser } from './_layout'; // Import from the same folder
 export default function SettingsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const {headerHeight} = useUser();
   
   // Grab global state from our new Master Layout
   const { unit, toggleUnit } = useUser();
@@ -33,6 +34,13 @@ export default function SettingsScreen() {
 
   return (
     <View style={styles.container}>
+      <View style={[styles.header, { height: headerHeight, paddingTop: insets.top }]}>
+        <TouchableOpacity onPress={() => router.back()}>
+           <Ionicons name="chevron-back" size={26} color="#000" />
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>Settings & Privacy</Text>
+        <View style={{ width: 40 }} />
+      </View>
       <ScrollView 
         contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 40 }]} 
         showsVerticalScrollIndicator={false}
@@ -129,7 +137,7 @@ export default function SettingsScreen() {
               icon="help-circle-outline" 
               title="Contact Support" 
               showArrow 
-              onPress={() => openLegalLink('https://yourwebsite.com/support')} 
+              onPress={() => openLegalLink('mailto:trainingroom.coach@gmail.com')} 
             />
           </View>
         </View>
@@ -174,6 +182,16 @@ function SettingRow({ icon, title, value, showArrow, onPress }: any) {
 }
 
 const styles = StyleSheet.create({
+  header: {
+    flexDirection: 'row', 
+    justifyContent: 'space-between', 
+    alignItems: 'center', 
+    paddingHorizontal: 15, 
+    backgroundColor: '#FFF',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E5E7',
+  },
+  headerTitle: { fontSize: 18, fontWeight: '800', color: '#000' },
   container: { flex: 1, backgroundColor: '#F2F2F7' },
   scrollContent: { padding: 20 },
   section: { marginBottom: 25 },
