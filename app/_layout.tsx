@@ -9,37 +9,48 @@ export default function RootLayout() {
   const [initializing, setInitializing] = useState(true);
   
   const router = useRouter();
-  const segments = useSegments(); // This tells us which folder the user is currently in
+  const segments = useSegments();
 
   useEffect(() => {
-    // 1. Listen for Auth changes
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       setUser(user);
       if (initializing) setInitializing(false);
     });
-
-    return unsubscribe; // Cleanup the listener when app closes
+    return unsubscribe;
   }, []);
 
   useEffect(() => {
-    if (initializing) return; // Wait until Firebase checks the user status
+    if (initializing) return;
 
-    const inAuthGroup = (segments[0] as string) === '(auth)';
+    const segmentArray = segments as string[];
+    const inAuthGroup = segmentArray.includes('(auth)');
+    const isSignupPage = segmentArray.includes('signup');
+    const isVerifyPage = segmentArray.includes('verify-email');
 
-    if (!user && !inAuthGroup) {
-      // 2. If NO user and NOT in Login, force them to Login
-      router.replace('/login');
-    } else if (user && inAuthGroup) {
-      // 3. If YES user and still in Login, force them to Home
-      router.replace('/');
+    if (!user) {
+      if (!inAuthGroup) {
+        router.replace('/(auth)/login');
+      }
+    } else {
+      // IF USER EXISTS
+      if (!user.emailVerified) {
+        // If they are unverified, we only allow them on 'signup' (to change details) or 'verify-email'
+        if (!isSignupPage && !isVerifyPage) {
+          router.replace('/(auth)/verify-email');
+        }
+      } else {
+        // If they ARE verified and in the auth group, send them home
+        if (inAuthGroup) {
+          router.replace('/(main)/(tabs)');
+        }
+      }
     }
-  }, [user, initializing]);
+  }, [user, initializing, segments]);
 
   if (initializing) {
-    // Show a loading spinner while checking if the user is logged in
     return (
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-        <ActivityIndicator size="large" color="#007AFF" />
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#000' }}>
+        <ActivityIndicator size="large" color="#c62828" />
       </View>
     );
   }
@@ -47,7 +58,7 @@ export default function RootLayout() {
   return (
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="(auth)" options={{ headerShown: false }} />
-      <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+      <Stack.Screen name="(main)" options={{ headerShown: false }} />
     </Stack>
   );
 }

@@ -1,127 +1,113 @@
 import { auth, db } from '@/fireBaseConfig';
+import { submitVerificationRequest } from '@/services/workoutService';
 import { Ionicons } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
 import { collection, onSnapshot, orderBy, query } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
-  Dimensions,
+  Alert,
+  Dimensions, Modal,
   ScrollView,
-  Share,
-  StyleSheet,
-  Text,
+  StyleSheet, Text,
   TouchableOpacity,
   View
 } from 'react-native';
 import { useUser } from '../_layout';
 
 const { width } = Dimensions.get('window');
-const EXERCISE_LIST = ["Bench Press", "Back Squat", "Front Squat", "Incline Bench Press", "Deadlift", "Clean", "Snatch", "Hang Clean", "Hang Snatch", "Block Clean", "Block Snatch", "Push Press", "Power Jerk", "Split Jerk", "Trap Bar Deadlift"];
 
-// --- MOCK DATA FOR FRIENDS (Currently Empty) ---
-const FRIENDS_LEADERBOARD: any[] = []; 
+// UPDATED EXERCISE LIST
+const EXERCISE_LIST = [
+  "Bench Press", "Back Squat", "Front Squat", "Incline Bench Press", 
+  "Deadlift", "Clean", "Snatch", "Jerk", "Push Press", "Trap Bar Deadlift"
+];
 
 export default function LeaderboardScreen() {
   const { fullName, unit } = useUser();
-  const [activeTab, setActiveTab] = useState<'local' | 'global'>('local');
+  const [activeTab, setActiveTab] = useState<'local' | 'global'>('global');
   const [selectedExercise, setSelectedExercise] = useState(EXERCISE_LIST[0]);
   
   const [globalData, setGlobalData] = useState<any[]>([]);
+  const [friendsData, setFriendsData] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const isFriendsEmpty = FRIENDS_LEADERBOARD.length === 0;
+  // Verification States
+  const [verifyModalVisible, setVerifyModalVisible] = useState(false);
+  const [videoUri, setVideoUri] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // 1. Fetch Real Global Data from Firestore
+  // 1. Live Listener for Global Rankings (Top 10)
   useEffect(() => {
-    if (activeTab === 'global') {
-      setLoading(true);
-      const unsub = onSnapshot(
-        query(collection(db, "leaderboards", selectedExercise, "rankings"), orderBy("score", "desc")),
-        (snapshot) => {
-          const rankings = snapshot.docs.map(doc => doc.data());
-          setGlobalData(rankings);
-          setLoading(false);
-        }
-      );
-      return () => unsub();
-    }
-  }, [selectedExercise, activeTab]);
-
-  const handleInviteFriends = async () => {
-    try {
-      await Share.share({
-        message: 'Join me in the Training Room! Track your workouts and compete with me: https://trainingroom.app/invite',
-      });
-    } catch (error) {
-      console.log(error);
-    }
-  };
+    setLoading(true);
+    const unsub = onSnapshot(
+      query(collection(db, "leaderboards", selectedExercise, "rankings"), orderBy("score", "desc")),
+      (snapshot) => {
+        const rankings = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        setGlobalData(rankings);
+        setLoading(false);
+      }
+    );
+    return () => unsub();
+  }, [selectedExercise]);
 
   const formatWeight = (kg: number) => {
     if (unit === 'lbs') return `${Math.round(kg / 0.453592)} lbs`;
     return `${Math.round(kg)} kg`;
   };
 
-  // Logic for Global Rank
-  const top3 = globalData.slice(0, 3);
+  const pickVideo = async () => {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Videos,
+      allowsEditing: true,
+      quality: 1,
+    });
+    if (!result.canceled) setVideoUri(result.assets[0].uri);
+  };
+
+  const handleVerifySubmit = async () => {
+    if (!videoUri) return Alert.alert("Video Required", "Please attach a video of your lift.");
+    setIsSubmitting(true);
+    // Logic: In a real app, upload video to Storage first. 
+    // For now, we simulate the request submission.
+    const userRankData = globalData.find(item => item.userId === auth.currentUser?.uid);
+    const res = await submitVerificationRequest(
+        auth.currentUser!.uid, 
+        fullName, 
+        selectedExercise, 
+        userRankData?.score || 0, 
+        videoUri
+    );
+    if (res.success) {
+      Alert.alert("Request Sent", "Our coaches will review your lift shortly.");
+      setVerifyModalVisible(false);
+    }
+    setIsSubmitting(false);
+  };
+
+  const renderRankIcon = (rank: number) => {
+    if (rank === 1) return <Ionicons name="medal" size={24} color="#FFD700" />;
+    if (rank === 2) return <Ionicons name="medal" size={24} color="#C0C0C0" />;
+    if (rank === 3) return <Ionicons name="medal" size={24} color="#CD7F32" />;
+    return <Text style={styles.rankNumText}>{rank}</Text>;
+  };
+
   const userIndex = globalData.findIndex(item => item.userId === auth.currentUser?.uid);
   const userRankData = userIndex !== -1 ? { ...globalData[userIndex], rank: userIndex + 1 } : null;
 
   return (
     <View style={styles.container}>
-      {/* TABS SWITCHER */}
+      {/* TABS */}
       <View style={styles.tabWrapper}>
         <View style={styles.tabContainer}>
-          <TouchableOpacity 
-            style={[styles.tab, activeTab === 'local' && styles.activeTab]} 
-            onPress={() => setActiveTab('local')}
-          >
-            <Text style={[styles.tabText, activeTab === 'local' && styles.activeTabText]}>Friends</Text>
-          </TouchableOpacity>
-          <TouchableOpacity 
-            style={[styles.tab, activeTab === 'global' && styles.activeTab]} 
-            onPress={() => setActiveTab('global')}
-          >
-            <Text style={[styles.tabText, activeTab === 'global' && styles.activeTabText]}>Global</Text>
-          </TouchableOpacity>
+          <TouchableOpacity style={[styles.tab, activeTab === 'local' && styles.activeTab]} onPress={() => setActiveTab('local')}><Text style={[styles.tabText, activeTab === 'local' && styles.activeTabText]}>Friends</Text></TouchableOpacity>
+          <TouchableOpacity style={[styles.tab, activeTab === 'global' && styles.activeTab]} onPress={() => setActiveTab('global')}><Text style={[styles.tabText, activeTab === 'global' && styles.activeTabText]}>Global</Text></TouchableOpacity>
         </View>
       </View>
 
-      <ScrollView 
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={[
-          styles.scrollContent, 
-          activeTab === 'local' && isFriendsEmpty && { flex: 1 } // Allow centering
-        ]}
-      >
-        
-        {/* --- LOCAL / FRIENDS TAB --- */}
-        {activeTab === 'local' && (
-          isFriendsEmpty ? (
-            /* CENTERED INVITE UI */
-            <View style={styles.emptyCenterContainer}>
-              <View style={styles.emptyIconCircle}>
-                <Ionicons name="people-outline" size={60} color="#c62828" />
-              </View>
-              <Text style={styles.emptyTitle}>Train with Friends</Text>
-              <Text style={styles.emptySubtitle}>
-                Invite your friends to see their progress and compete on the local leaderboard.
-              </Text>
-              <TouchableOpacity style={styles.largeInviteBtn} onPress={handleInviteFriends}>
-                <Text style={styles.largeInviteBtnText}>Invite your first friend</Text>
-              </TouchableOpacity>
-            </View>
-          ) : (
-            <View style={styles.listContainer}>
-               <Text style={styles.sectionLabel}>Friends Ranking</Text>
-               {/* Friends list map would go here */}
-            </View>
-          )
-        )}
-
-        {/* --- GLOBAL TAB --- */}
-        {activeTab === 'global' && (
+      <ScrollView showsVerticalScrollIndicator={false}>
+        {activeTab === 'global' ? (
           <View>
-            {/* EXERCISE SELECTOR */}
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.selector}>
               {EXERCISE_LIST.map(ex => (
                 <TouchableOpacity key={ex} style={[styles.chip, selectedExercise === ex && styles.activeChip]} onPress={() => setSelectedExercise(ex)}>
@@ -131,85 +117,120 @@ export default function LeaderboardScreen() {
             </ScrollView>
 
             <View style={styles.leaderboardWrapper}>
-              {loading ? (
-                <ActivityIndicator color="#c62828" style={{ marginTop: 50 }} />
-              ) : (
-                <>
-                  {/* BAR 1: USER'S RANK */}
-                  <Text style={styles.sectionLabel}>Your Standing</Text>
-                  <View style={styles.userRankBar}>
-                    <Text style={styles.rankNum}>#{userRankData ? userRankData.rank : '--'}</Text>
-                    <View style={styles.avatarRed}><Ionicons name="person" size={16} color="#FFF" /></View>
-                    <Text style={styles.nameText} numberOfLines={1}>{fullName} (You)</Text>
-                    <Text style={styles.scoreText}>{userRankData ? formatWeight(userRankData.score) : '--'}</Text>
+              {/* YOUR STANDING CARD */}
+              <Text style={styles.sectionLabel}>Your Standing</Text>
+              <View style={styles.userRankBar}>
+                <View style={styles.rankInfo}>
+                  <Text style={styles.rankNum}>#{userRankData ? userRankData.rank : '--'}</Text>
+                  <View style={styles.userInfo}>
+                    <Text style={styles.nameText}>{fullName} {userRankData?.verified && <Ionicons name="checkmark-circle" size={14} color="#007AFF" />}</Text>
+                    <Text style={styles.scoreText}>{userRankData ? formatWeight(userRankData.score) : 'No data'}</Text>
                   </View>
+                </View>
+                <TouchableOpacity style={styles.verifyBtn} onPress={() => setVerifyModalVisible(true)}>
+                    <Text style={styles.verifyBtnText}>Verify Lift</Text>
+                </TouchableOpacity>
+              </View>
 
-                  <View style={styles.dividerLarge} />
+              <View style={styles.dividerLarge} />
 
-                  {/* BARS 2-4: TOP 3 */}
-                  <Text style={styles.sectionLabel}>Top 3 Performers</Text>
-                  {top3.length > 0 ? top3.map((user, index) => (
-                    <View key={index} style={styles.rankBar}>
-                      <Text style={[styles.rankNum, index === 0 && { color: '#FFD700' }]}>#{index + 1}</Text>
-                      <View style={styles.avatarGray}><Ionicons name="person" size={16} color="#666" /></View>
-                      <Text style={styles.nameText} numberOfLines={1}>{user.userName}</Text>
-                      <Text style={styles.scoreText}>{formatWeight(user.score)}</Text>
-                    </View>
-                  )) : (
-                    <Text style={styles.emptyText}>Be the first to log a {selectedExercise}!</Text>
-                  )}
-                </>
-              )}
+              {/* TOP 10 LIST */}
+              <Text style={styles.sectionLabel}>Top 10 Performers</Text>
+              {loading ? <ActivityIndicator color="#c62828" /> : 
+                globalData.slice(0, 10).map((user, index) => (
+                  <View key={index} style={styles.rankBar}>
+                    <View style={styles.rankIconContainer}>{renderRankIcon(index + 1)}</View>
+                    <Text style={styles.rowName}>{user.userName} {user.verified && <Ionicons name="checkmark-circle" size={14} color="#007AFF" />}</Text>
+                    <Text style={styles.rowScore}>{formatWeight(user.score)}</Text>
+                  </View>
+                ))
+              }
             </View>
           </View>
+        ) : (
+          /* FRIENDS TAB - Showing all friends */
+          <View style={styles.friendsContainer}>
+             <Text style={styles.sectionLabel}>Friends Activity</Text>
+             {friendsData.length === 0 ? (
+               <View style={styles.emptyFriends}><Text>Invite friends to compete!</Text></View>
+             ) : (
+               friendsData.map((f, i) => (
+                 <View key={i} style={styles.rankBar}>
+                    <Text style={styles.rowName}>{f.userName}</Text>
+                    <Text style={styles.rowScore}>{formatWeight(f.score)}</Text>
+                 </View>
+               ))
+             )}
+          </View>
         )}
-
-        <View style={{ height: 40 }} />
       </ScrollView>
+
+      {/* VERIFICATION MODAL */}
+      <Modal visible={verifyModalVisible} animationType="slide" transparent={true}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Verify Your {selectedExercise}</Text>
+            <Text style={styles.modalSub}>Upload a video of your max lift. Our team will review the form and depth to grant your verification tick.</Text>
+            
+            <TouchableOpacity style={styles.uploadBox} onPress={pickVideo}>
+              <Ionicons name={videoUri ? "videocam" : "cloud-upload-outline"} size={40} color="#c62828" />
+              <Text style={styles.uploadText}>{videoUri ? "Video Attached" : "Select Video Proof"}</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.submitVerifyBtn} onPress={handleVerifySubmit} disabled={isSubmitting}>
+              {isSubmitting ? <ActivityIndicator color="#FFF" /> : <Text style={styles.submitVerifyText}>Submit for Review</Text>}
+            </TouchableOpacity>
+            
+            <TouchableOpacity onPress={() => setVerifyModalVisible(false)} style={styles.cancelBtn}><Text>Cancel</Text></TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#FFF' },
-  scrollContent: { paddingBottom: 20 },
-
-  // Tab Switcher
-  tabWrapper: { padding: 15, backgroundColor: '#FFF', borderBottomWidth: 1, borderBottomColor: '#F2F2F7' },
+  container: { flex: 1, backgroundColor: '#F2F2F7' },
+  tabWrapper: { padding: 15, backgroundColor: '#FFF', borderBottomWidth: 1, borderBottomColor: '#EEE' },
   tabContainer: { flexDirection: 'row', backgroundColor: '#F2F2F7', borderRadius: 10, padding: 4 },
   tab: { flex: 1, paddingVertical: 8, alignItems: 'center', borderRadius: 8 },
-  activeTab: { backgroundColor: '#FFF', elevation: 2, shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 4 },
-  tabText: { fontWeight: '700', color: '#8E8E93', fontSize: 14 },
+  activeTab: { backgroundColor: '#FFF', elevation: 2 },
+  tabText: { fontWeight: '700', color: '#888', fontSize: 14 },
   activeTabText: { color: '#000' },
-
-  // Empty State (Friends)
-  emptyCenterContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 40, paddingBottom: 80 },
-  emptyIconCircle: { width: 100, height: 100, borderRadius: 50, backgroundColor: '#F9F9FB', justifyContent: 'center', alignItems: 'center', marginBottom: 20 },
-  emptyTitle: { fontSize: 22, fontWeight: '900', color: '#000', marginBottom: 10 },
-  emptySubtitle: { fontSize: 14, color: '#666', textAlign: 'center', marginBottom: 30, lineHeight: 22 },
-  largeInviteBtn: { backgroundColor: '#c62828', paddingVertical: 16, paddingHorizontal: 30, borderRadius: 15 },
-  largeInviteBtnText: { color: '#FFF', fontWeight: 'bold', fontSize: 16 },
-
-  // Global View Styles
   selector: { padding: 15 },
   chip: { paddingHorizontal: 15, paddingVertical: 8, borderRadius: 20, backgroundColor: '#FFF', marginRight: 10, borderWidth: 1, borderColor: '#EEE' },
   activeChip: { backgroundColor: '#c62828', borderColor: '#c62828' },
   chipText: { fontSize: 12, fontWeight: '700', color: '#666' },
   activeChipText: { color: '#FFF' },
-
   leaderboardWrapper: { padding: 20 },
-  sectionLabel: { fontSize: 11, fontWeight: '800', color: '#AAA', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 12, marginLeft: 5 },
+  sectionLabel: { fontSize: 11, fontWeight: '800', color: '#AAA', textTransform: 'uppercase', marginBottom: 12, marginLeft: 5 },
   
-  userRankBar: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFF', padding: 18, borderRadius: 15, borderWidth: 2, borderColor: '#c62828', marginBottom: 20 },
-  rankBar: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFF', padding: 18, borderRadius: 15, marginBottom: 10, borderWidth: 1, borderColor: '#EEE' },
+  userRankBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#FFF', padding: 18, borderRadius: 15, borderWidth: 2, borderColor: '#c62828', marginBottom: 20 },
+  rankInfo: { flexDirection: 'row', alignItems: 'center' },
+  rankNum: { fontSize: 24, fontWeight: '900', color: '#c62828', marginRight: 15 },
+  userInfo: { gap: 2 },
+  nameText: { fontSize: 16, fontWeight: '700' },
+  scoreText: { fontSize: 14, color: '#666', fontWeight: '600' },
+  verifyBtn: { backgroundColor: '#F2F2F7', paddingVertical: 8, paddingHorizontal: 12, borderRadius: 8 },
+  verifyBtnText: { color: '#007AFF', fontSize: 12, fontWeight: 'bold' },
+
+  rankBar: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFF', padding: 15, borderRadius: 15, marginBottom: 10, borderWidth: 1, borderColor: '#EEE' },
+  rankIconContainer: { width: 40, alignItems: 'center' },
+  rankNumText: { fontSize: 16, fontWeight: '800', color: '#8E8E93' },
+  rowName: { flex: 1, fontSize: 15, fontWeight: '600', marginLeft: 10 },
+  rowScore: { fontSize: 15, fontWeight: '800', color: '#000' },
+
+  dividerLarge: { height: 1, backgroundColor: '#DDD', marginVertical: 20 },
   
-  rankNum: { width: 35, fontSize: 18, fontWeight: '900', color: '#000' },
-  avatarRed: { width: 30, height: 30, borderRadius: 15, backgroundColor: '#c62828', justifyContent: 'center', alignItems: 'center', marginRight: 15 },
-  avatarGray: { width: 30, height: 30, borderRadius: 15, backgroundColor: '#F2F2F7', justifyContent: 'center', alignItems: 'center', marginRight: 15 },
-  nameText: { flex: 1, fontSize: 16, fontWeight: '600', color: '#333' },
-  scoreText: { fontSize: 16, fontWeight: '800', color: '#000' },
-  
-  dividerLarge: { height: 1, backgroundColor: '#EEE', marginVertical: 20, width: '95%', alignSelf: 'center' },
-  emptyText: { textAlign: 'center', marginTop: 30, color: '#AAA', fontStyle: 'italic' },
-  listContainer: { paddingHorizontal: 20 }
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' },
+  modalContent: { backgroundColor: '#FFF', width: '85%', borderRadius: 25, padding: 25 },
+  modalTitle: { fontSize: 20, fontWeight: '900', textAlign: 'center', marginBottom: 10 },
+  modalSub: { fontSize: 14, color: '#666', textAlign: 'center', lineHeight: 20, marginBottom: 20 },
+  uploadBox: { height: 120, borderStyle: 'dashed', borderWidth: 2, borderColor: '#DDD', borderRadius: 15, justifyContent: 'center', alignItems: 'center', marginBottom: 20 },
+  uploadText: { marginTop: 10, fontWeight: 'bold', color: '#888' },
+  submitVerifyBtn: { backgroundColor: '#c62828', padding: 18, borderRadius: 12, alignItems: 'center' },
+  submitVerifyText: { color: '#FFF', fontWeight: 'bold' },
+  cancelBtn: { alignItems: 'center', marginTop: 15 },
+  friendsContainer: { padding: 20 },
+  emptyFriends: { alignItems: 'center', marginTop: 50 }
 });

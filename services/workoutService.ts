@@ -1,4 +1,4 @@
-import { arrayUnion, collection, doc, getDoc, getDocs, query, setDoc, updateDoc } from "firebase/firestore";
+import { addDoc, arrayUnion, collection, doc, getDoc, getDocs, query, serverTimestamp, setDoc, updateDoc } from "firebase/firestore";
 import { db } from '../fireBaseConfig';
 
 export interface Exercise {
@@ -92,6 +92,24 @@ export const deleteExerciseFromAllHistory = async (userId: string, exerciseName:
       }
     });
     await Promise.all(deletePromises);
+    return { success: true };
+  } catch (error) {
+    return { success: false, error };
+  }
+};
+
+export const submitVerificationRequest = async (userId: string, userName: string, exercise: string, weight: number, videoUrl: string) => {
+  try {
+    const requestRef = collection(db, "verification_requests");
+    await addDoc(requestRef, {
+      userId,
+      userName,
+      exercise,
+      weight,
+      videoUrl,
+      status: 'pending',
+      createdAt: serverTimestamp()
+    });
     return { success: true };
   } catch (error) {
     return { success: false, error };
