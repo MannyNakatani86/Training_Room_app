@@ -1,13 +1,14 @@
 import OnboardingModal from '@/components/OnboardingModal';
 import { auth, db } from '@/fireBaseConfig';
-import { Exercise } from '@/services/workoutService';
+import { Exercise, copyWorkoutToToday } from '@/services/workoutService';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { doc, onSnapshot, updateDoc } from 'firebase/firestore';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
+  Alert,
   Dimensions,
-  FlatList,
+  FlatList, // ADDED IMPORT
   LayoutAnimation,
   Modal,
   Platform,
@@ -21,8 +22,6 @@ import {
 import { useUser } from '../_layout';
 
 const { width } = Dimensions.get('window');
-
-// MUST-HAVE GROUP ORDER
 const GROUP_ORDER = ["Primer", "Power Movements", "Main Lifts", "Accessories"];
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -32,11 +31,15 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
 export default function HomeScreen() {
   const { fullName } = useUser();
   const router = useRouter();
-  const [activeIndex, setActiveIndex] = useState(0);
+  const flatListRef = useRef<FlatList>(null);
+  
+  const [activeIndex, setActiveIndex] = useState(7); 
   const [workouts, setWorkouts] = useState<Record<string, any>>({});
   const [isModalVisible, setIsModalVisible] = useState(false);
+  
   const [redoModalVisible, setRedoModalVisible] = useState(false);
-  const [selectedRedoDate, setSelectedRedoDate] = useState('');
+  const [copyModalVisible, setCopyModalVisible] = useState(false);
+  const [selectedDate, setSelectedDate] = useState('');
   const [expandedCards, setExpandedCards] = useState<Record<string, boolean>>({});
 
   const getFormattedStr = (date: Date) => {
@@ -47,15 +50,15 @@ export default function HomeScreen() {
 
   const todayStr = getFormattedStr(new Date());
 
-  const workoutDays = Array.from({ length: 7 }).map((_, i) => {
+  const workoutDays = Array.from({ length: 14 }).map((_, i) => {
     const date = new Date();
-    date.setDate(date.getDate() + i);
-    return {
-      id: i.toString(),
-      dateStr: getFormattedStr(date),
-      dateLabel: i === 0 ? "TODAY" : i === 1 ? "TOMORROW" : date.toLocaleDateString('en-US', { weekday: 'long' }).toUpperCase(),
-      fullDate: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-    };
+    date.setDate(date.getDate() - 7 + i);
+    const dateStr = getFormattedStr(date);
+    let label = date.toLocaleDateString('en-US', { weekday: 'long' }).toUpperCase();
+    if (dateStr === todayStr) label = "TODAY";
+    const tomorrow = new Date(); tomorrow.setDate(tomorrow.getDate() + 1);
+    if (dateStr === getFormattedStr(tomorrow)) label = "TOMORROW";
+    return { id: i.toString(), dateStr, dateLabel: label, fullDate: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) };
   });
 
   useEffect(() => {
@@ -66,6 +69,7 @@ export default function HomeScreen() {
         setWorkouts(prev => ({ ...prev, [day.dateStr]: docSnap.exists() ? docSnap.data() : null }));
       });
     });
+    setTimeout(() => { flatListRef.current?.scrollToIndex({ index: 7, animated: false }); }, 150);
     return () => unsubs.forEach(unsub => unsub());
   }, []);
 
@@ -74,14 +78,35 @@ export default function HomeScreen() {
     setExpandedCards(prev => ({ ...prev, [id]: !prev[id] }));
   };
 
+  const triggerRedoPopup = (dateStr: string) => {
+    setSelectedDate(dateStr);
+    setRedoModalVisible(true);
+  };
+
   const executeUnlock = async () => {
     const user = auth.currentUser;
-    if (user && selectedRedoDate) {
-      await updateDoc(doc(db, "customers", user.uid, "workouts", selectedRedoDate), { isFinished: false });
+    if (user && selectedDate) {
+      await updateDoc(doc(db, "customers", user.uid, "workouts", selectedDate), { isFinished: false });
       setRedoModalVisible(false);
-      if (selectedRedoDate === todayStr) router.push('/(main)/active-workout');
-      else router.push({ pathname: '/workouts', params: { date: selectedRedoDate } });
+      if (selectedDate === todayStr) router.push('/(main)/active-workout');
+      else router.push({ pathname: '/workouts', params: { date: selectedDate } });
     }
+  };
+
+  const executeCopyWorkout = async () => {
+    const user = auth.currentUser;
+    if (user && selectedDate) {
+      const res = await copyWorkoutToToday(user.uid, selectedDate, todayStr);
+      setCopyModalVisible(false);
+      if (res.success) router.push('/(main)/active-workout');
+      else Alert.alert("Error", String(res.error));
+    }
+  };
+
+  const formatMeta = (ex: any) => {
+    const repsPart = Array.isArray(ex.reps) ? ex.reps.join(',') : ex.reps;
+    const units = Array.isArray(ex.repUnits) ? ex.repUnits.join(' ') : '';
+    return `${ex.sets}x${repsPart}${units ? ' ' + units : ''}`;
   };
 
   const renderWorkoutCard = ({ item }: { item: typeof workoutDays[0] }) => {
@@ -89,7 +114,7 @@ export default function HomeScreen() {
     const rawExercises: Exercise[] = dayData?.exercises || [];
     const isFinished = dayData?.isFinished || false;
     const isStarted = dayData?.isStarted || false;
-    const isFuture = item.dateStr > todayStr;
+    const isToday = item.dateStr === todayStr;
     const isExpanded = expandedCards[item.id];
 
     const sortedExercises = [...rawExercises].sort((a, b) => {
@@ -101,26 +126,18 @@ export default function HomeScreen() {
     const displayList = isExpanded ? sortedExercises : sortedExercises.slice(0, 3);
     let lastGroupHeader = "";
 
-    const formatMeta = (ex: Exercise) => {
-      const repsPart = Array.isArray(ex.reps) ? ex.reps.join(',') : ex.reps;
-      const units = Array.isArray(ex.repUnits) ? ex.repUnits.join(' ') : '';
-      return `${ex.sets}x${repsPart}${units ? ' ' + units : ''}`;
-    };
-
     return (
       <View style={styles.cardContainer}>
         <View style={styles.sectionHeader}><Text style={styles.sectionTitleText}>{item.dateLabel} • {item.fullDate}</Text></View>
-        
         <TouchableOpacity activeOpacity={0.9} onPress={() => toggleExpand(item.id)} style={[styles.workoutCard, isExpanded && { minHeight: 320 }]}>
           {rawExercises.length > 0 ? (
             <View style={styles.contentWrapper}>
               <View style={styles.exerciseArea}>
                 <ScrollView showsVerticalScrollIndicator={false} scrollEnabled={isExpanded}>
-                  {displayList.map((ex, idx) => {
+                  {displayList.map((ex) => {
                     const currentGroup = ex.groupTitle || "General";
                     const showHeader = currentGroup !== lastGroupHeader;
                     lastGroupHeader = currentGroup;
-
                     return (
                       <View key={ex.id}>
                         {showHeader && <Text style={styles.groupLabel}>{currentGroup.toUpperCase()}</Text>}
@@ -134,27 +151,25 @@ export default function HomeScreen() {
                       </View>
                     );
                   })}
-                  {!isExpanded && rawExercises.length > 3 && (
-                    <Text style={styles.moreIndicator}>+ {rawExercises.length - 3} more. Tap to expand.</Text>
-                  )}
+                  {!isExpanded && rawExercises.length > 3 && <Text style={styles.moreIndicator}>+ {rawExercises.length - 3} more. Tap to expand.</Text>}
                 </ScrollView>
               </View>
 
               <View style={styles.buttonWrapper}>
                 {isFinished ? (
-                  <TouchableOpacity style={styles.completedBadge} onPress={() => { setSelectedRedoDate(item.dateStr); setRedoModalVisible(true); }}>
+                  <TouchableOpacity style={styles.completedBadge} onPress={() => triggerRedoPopup(item.dateStr)}>
                     <Text style={styles.completedBadgeText}>Session Complete</Text>
                     <Ionicons name="refresh-circle" size={20} color="#FFF" />
                   </TouchableOpacity>
-                ) : isFuture ? (
-                  <TouchableOpacity style={[styles.startWorkoutBtn, { backgroundColor: '#F2F2F7' }]} onPress={() => router.push({ pathname: '/workouts', params: { date: item.dateStr } })}>
-                    <Text style={[styles.startWorkoutBtnText, { color: '#000' }]}>Edit Plan</Text>
-                    <Ionicons name="pencil" size={16} color="#000" />
-                  </TouchableOpacity>
-                ) : (
+                ) : isToday ? (
                   <TouchableOpacity style={[styles.startWorkoutBtn, isStarted && { backgroundColor: '#c62828' }]} onPress={() => router.push('/(main)/active-workout')}>
                     <Text style={styles.startWorkoutBtnText}>{isStarted ? "Resume Workout" : "Start Workout"}</Text>
                     <Ionicons name={isStarted ? "refresh" : "play"} size={16} color="#FFF" />
+                  </TouchableOpacity>
+                ) : (
+                  <TouchableOpacity style={styles.doTodayBtn} onPress={() => { setSelectedDate(item.dateStr); setCopyModalVisible(true); }}>
+                    <Text style={styles.doTodayBtnText}>Do Workout Today</Text>
+                    <Ionicons name="calendar-outline" size={16} color="#c62828" />
                   </TouchableOpacity>
                 )}
               </View>
@@ -178,12 +193,14 @@ export default function HomeScreen() {
           <Text style={styles.welcomeText}>Hi {fullName.split(' ')[0]},</Text>
           <Text style={styles.subtitleText}>Consistency is the key to progress.</Text>
         </View>
-        <FlatList data={workoutDays} renderItem={renderWorkoutCard} horizontal pagingEnabled showsHorizontalScrollIndicator={false} onScroll={(e) => setActiveIndex(Math.round(e.nativeEvent.contentOffset.x / width))} snapToAlignment="center" keyExtractor={(item) => item.id} />
-        <View style={styles.paginationDots}>{workoutDays.map((_, i) => <View key={i} style={[styles.dot, activeIndex === i ? styles.activeDot : styles.inactiveDot]} />)}</View>
+
+        <FlatList ref={flatListRef} data={workoutDays} renderItem={renderWorkoutCard} horizontal pagingEnabled showsHorizontalScrollIndicator={false} onScroll={(e) => setActiveIndex(Math.round(e.nativeEvent.contentOffset.x / width))} snapToAlignment="center" keyExtractor={(item) => item.id} getItemLayout={(data, index) => ({ length: width, offset: width * index, index })} />
+
+        <View style={styles.paginationDots}>{workoutDays.map((_, i) => <View key={i} style={[styles.dot, activeIndex === i ? styles.activeDot : styles.inactiveDot, (i < 4 || i > 10) && { opacity: 0.3 }]} />)}</View>
+
         <TouchableOpacity style={styles.plansButton} onPress={() => router.push('/(main)/programs')} activeOpacity={0.8}><View style={styles.buttonIconCircle}><Ionicons name="list" size={24} color="#c62828" /></View><View style={styles.buttonTextContainer}><Text style={styles.buttonTitle}>Choose Training Plan</Text><Text style={styles.buttonSubtitle}>Get a customized 4-week protocol</Text></View><Ionicons name="chevron-forward" size={20} color="#FFF" /></TouchableOpacity>
       </ScrollView>
 
-      {/* REDO MODAL */}
       <Modal visible={redoModalVisible} animationType="fade" transparent={true}>
         <View style={styles.centerModalOverlay}>
           <View style={styles.confirmBox}>
@@ -192,6 +209,18 @@ export default function HomeScreen() {
             <Text style={styles.confirmSubtitle}>Would you like to redo or edit this completed session?</Text>
             <TouchableOpacity style={styles.confirmFinishBtn} onPress={executeUnlock}><Text style={styles.confirmFinishText}>Yes, Unlock</Text></TouchableOpacity>
             <TouchableOpacity style={{ marginTop: 15 }} onPress={() => setRedoModalVisible(false)}><Text style={{ color: '#666', fontWeight: '600' }}>CANCEL</Text></TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={copyModalVisible} animationType="fade" transparent={true}>
+        <View style={styles.centerModalOverlay}>
+          <View style={styles.confirmBox}>
+            <View style={[styles.confirmIconCircle, {backgroundColor: '#E3F2FD'}]}><Ionicons name="copy-outline" size={40} color="#007AFF" /></View>
+            <Text style={styles.confirmTitle}>Move Workout?</Text>
+            <Text style={styles.confirmSubtitle}>Would you like to copy these exercises and start this session today?</Text>
+            <TouchableOpacity style={[styles.confirmFinishBtn, {backgroundColor: '#007AFF'}]} onPress={executeCopyWorkout}><Text style={styles.confirmFinishText}>Yes, Start Today</Text></TouchableOpacity>
+            <TouchableOpacity style={{ marginTop: 15 }} onPress={() => setCopyModalVisible(false)}><Text style={{ color: '#666', fontWeight: '600' }}>CANCEL</Text></TouchableOpacity>
           </View>
         </View>
       </Modal>
@@ -211,7 +240,7 @@ const styles = StyleSheet.create({
   sectionTitleText: { fontSize: 13, fontWeight: '700', color: '#8e8e93', letterSpacing: 1 },
   workoutCard: { backgroundColor: '#FFF', borderRadius: 25, minHeight: 280, padding: 20, elevation: 3, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 10 },
   contentWrapper: { flex: 1, justifyContent: 'space-between' },
-  exerciseArea: { flex: 1 },
+  exerciseArea: { flex: 1, paddingTop: 5 },
   groupLabel: { fontSize: 9, fontWeight: '900', color: '#AAA', marginBottom: 8, letterSpacing: 1, marginTop: 5 },
   miniExerciseRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
   redDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#c62828', marginRight: 12 },
@@ -221,6 +250,8 @@ const styles = StyleSheet.create({
   buttonWrapper: { marginTop: 15 },
   startWorkoutBtn: { backgroundColor: '#000', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 14, borderRadius: 15, gap: 8 },
   startWorkoutBtnText: { color: '#FFF', fontWeight: 'bold', fontSize: 15 },
+  doTodayBtn: { backgroundColor: '#FFF', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 14, borderRadius: 15, gap: 8, borderWidth: 1, borderColor: '#c62828' },
+  doTodayBtnText: { color: '#c62828', fontWeight: 'bold', fontSize: 15 },
   completedBadge: { backgroundColor: '#34C759', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 14, borderRadius: 15, gap: 8 },
   completedBadgeText: { color: '#FFF', fontWeight: 'bold', fontSize: 15 },
   emptyContent: { flex: 1, alignItems: 'center', justifyContent: 'center' },
@@ -229,9 +260,9 @@ const styles = StyleSheet.create({
   planButton: { backgroundColor: '#F2F2F7', paddingVertical: 10, paddingHorizontal: 20, borderRadius: 12 },
   planButtonText: { color: '#000', fontWeight: 'bold' },
   paginationDots: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', marginTop: 15, marginBottom: 30 },
-  dot: { height: 8, borderRadius: 4, marginHorizontal: 4 },
+  dot: { height: 6, width: 6, borderRadius: 3, marginHorizontal: 4, backgroundColor: '#DDD' },
   activeDot: { width: 20, backgroundColor: '#c62828' },
-  inactiveDot: { width: 8, backgroundColor: '#DDD' },
+  inactiveDot: { backgroundColor: '#DDD' },
   plansButton: { marginHorizontal: 20, backgroundColor: '#c62828', flexDirection: 'row', alignItems: 'center', padding: 20, borderRadius: 25, elevation: 5 },
   buttonIconCircle: { width: 45, height: 45, backgroundColor: '#FFF', borderRadius: 22.5, justifyContent: 'center', alignItems: 'center' },
   buttonTextContainer: { flex: 1, marginLeft: 15 },

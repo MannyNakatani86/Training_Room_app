@@ -25,26 +25,45 @@ interface Announcement {
 export default function UpdatesScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const {headerHeight} = useUser();
+  const { headerHeight } = useUser();
   const [notifications, setNotifications] = useState<Announcement[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Listen to the global announcements collection
+    // Safety Timeout: If Firebase takes longer than 5 seconds, stop the spinner
+    const timeoutFallback = setTimeout(() => {
+      setLoading(false);
+    }, 5000);
+
     const announcementsRef = collection(db, "announcements");
+    // NOTE: If this query fails, it's usually because you need to create an 
+    // index in the Firebase Console for "timestamp desc"
     const q = query(announcementsRef, orderBy("timestamp", "desc"));
 
-    const unsub = onSnapshot(q, (snapshot) => {
-      const docs = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      })) as Announcement[];
-      
-      setNotifications(docs);
-      setLoading(false);
-    });
+    const unsub = onSnapshot(q, 
+      (snapshot) => {
+        clearTimeout(timeoutFallback); // Data arrived, clear the timeout
+        const docs = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        })) as Announcement[];
+        
+        setNotifications(docs);
+        setLoading(false);
+      },
+      (error) => {
+        // ERROR HANDLING: If there is a connection or permission error, 
+        // we must stop loading so the user isn't stuck.
+        console.error("Firestore Error in UpdatesScreen:", error);
+        clearTimeout(timeoutFallback);
+        setLoading(false);
+      }
+    );
 
-    return () => unsub();
+    return () => {
+      unsub();
+      clearTimeout(timeoutFallback);
+    };
   }, []);
 
   const getIcon = (type: string) => {
@@ -56,14 +75,20 @@ export default function UpdatesScreen() {
   };
 
   if (loading) {
-    return <View style={styles.center}><ActivityIndicator size="large" color="#c62828" /></View>;
+    return (
+      <View style={styles.center}>
+        <ActivityIndicator size="large" color="#c62828" />
+        <Text style={{ marginTop: 15, color: '#888' }}>Checking for updates...</Text>
+      </View>
+    );
   }
 
   return (
     <View style={styles.container}>
+      {/* HEADER */}
       <View style={[styles.header, { height: headerHeight, paddingTop: insets.top }]}>
-        <TouchableOpacity onPress={() => router.back()}>
-            <Ionicons name="chevron-back" size={26} color="#000" />
+        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
+          <Ionicons name="chevron-back" size={26} color="#000" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Your Updates</Text>
         <View style={{ width: 40 }} />
@@ -76,6 +101,18 @@ export default function UpdatesScreen() {
         showsVerticalScrollIndicator={false}
         renderItem={({ item }) => {
           const iconConfig = getIcon(item.type);
+          
+          // Helper to safely format Firebase Timestamps
+          let dateString = "Recently";
+          if (item.timestamp) {
+            try {
+              const date = item.timestamp.toDate ? item.timestamp.toDate() : new Date(item.timestamp);
+              dateString = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+            } catch (e) {
+              dateString = "Recently";
+            }
+          }
+
           return (
             <View style={styles.updateCard}>
               <View style={[styles.iconContainer, { backgroundColor: iconConfig.bg }]}>
@@ -84,9 +121,7 @@ export default function UpdatesScreen() {
               <View style={styles.textContainer}>
                 <Text style={styles.updateTitle}>{item.title}</Text>
                 <Text style={styles.updateContent}>{item.content}</Text>
-                <Text style={styles.updateDate}>
-                  {item.timestamp?.toDate().toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                </Text>
+                <Text style={styles.updateDate}>{dateString}</Text>
               </View>
             </View>
           );
@@ -98,7 +133,7 @@ export default function UpdatesScreen() {
             </View>
             <Text style={styles.emptyText}>Nothing to show, yet</Text>
             <Text style={styles.emptySubText}>
-              We'll notify you here when there are updates to your training plan or social activity.
+              We'll notify you here when there are updates to your training plan or community activity.
             </Text>
           </View>
         }
@@ -109,7 +144,7 @@ export default function UpdatesScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F2F2F7' },
-  center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#F2F2F7' },
   header: {
     flexDirection: 'row', 
     justifyContent: 'space-between', 
@@ -122,7 +157,6 @@ const styles = StyleSheet.create({
   headerTitle: { fontSize: 18, fontWeight: '800', color: '#000' },
   backBtn: { width: 40, height: 40, justifyContent: 'center' },
   listContent: { padding: 15, paddingBottom: 40 },
-  
   updateCard: { 
     flexDirection: 'row', 
     backgroundColor: '#FFF', 
@@ -139,7 +173,6 @@ const styles = StyleSheet.create({
   updateTitle: { fontSize: 16, fontWeight: '700', color: '#000', marginBottom: 4 },
   updateContent: { fontSize: 14, color: '#666', lineHeight: 20 },
   updateDate: { fontSize: 11, color: '#AAA', fontWeight: 'bold', marginTop: 8, textTransform: 'uppercase' },
-
   emptyContainer: { alignItems: 'center', marginTop: 100, paddingHorizontal: 40 },
   emptyIconCircle: { width: 80, height: 80, borderRadius: 40, backgroundColor: '#FFF', justifyContent: 'center', alignItems: 'center', marginBottom: 20, elevation: 2 },
   emptyText: { fontSize: 18, fontWeight: '700', color: '#333' },

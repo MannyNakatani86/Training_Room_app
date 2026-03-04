@@ -1,5 +1,6 @@
 import { addDoc, arrayUnion, collection, doc, getDoc, getDocs, query, serverTimestamp, setDoc, updateDoc } from "firebase/firestore";
-import { db } from '../fireBaseConfig';
+import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
+import { db, storage } from '../fireBaseConfig';
 
 export interface Exercise {
   id: string;
@@ -98,20 +99,60 @@ export const deleteExerciseFromAllHistory = async (userId: string, exerciseName:
   }
 };
 
-export const submitVerificationRequest = async (userId: string, userName: string, exercise: string, weight: number, videoUrl: string) => {
+export const copyWorkoutToToday = async (userId: string, sourceDateStr: string, todayStr: string) => {
   try {
-    const requestRef = collection(db, "verification_requests");
-    await addDoc(requestRef, {
+    const sourceRef = doc(db, "customers", userId, "workouts", sourceDateStr);
+    const sourceSnap = await getDoc(sourceRef);
+
+    if (sourceSnap.exists()) {
+      const exercisesToCopy = sourceSnap.data().exercises || [];
+      const todayRef = doc(db, "customers", userId, "workouts", todayStr);
+      
+      // Overwrite today's session with the copied exercises
+      await setDoc(todayRef, {
+        exercises: exercisesToCopy,
+        date: todayStr,
+        isFinished: false,
+        isStarted: true // Auto-start the session
+      }, { merge: true });
+      
+      return { success: true };
+    }
+    return { success: false, error: "No exercises found to copy." };
+  } catch (error) {
+    return { success: false, error };
+  }
+};
+
+export const submitVerificationRequest = async (
+  userId: string, 
+  userName: string, 
+  exercise: string, 
+  score: number, 
+  localVideoUri: string
+) => {
+  try {
+    // 1. Upload Video to Firebase Storage
+    const response = await fetch(localVideoUri);
+    const blob = await response.blob();
+    const storageRef = ref(storage, `verifications/${userId}_${Date.now()}.mp4`);
+    await uploadBytes(storageRef, blob);
+    const videoUrl = await getDownloadURL(storageRef);
+
+    // 2. Save Request to Firestore for the Company to see
+    await addDoc(collection(db, "verificationRequests"), {
       userId,
       userName,
       exercise,
-      weight,
+      score,
       videoUrl,
-      status: 'pending',
-      createdAt: serverTimestamp()
+      status: 'pending', // pending, approved, rejected
+      createdAt: serverTimestamp(),
     });
+
     return { success: true };
   } catch (error) {
+    console.error(error);
     return { success: false, error };
   }
 };

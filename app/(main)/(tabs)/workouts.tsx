@@ -1,5 +1,5 @@
 import { auth, db } from '@/fireBaseConfig';
-import { addExerciseToDate, deleteExerciseFromDate, Exercise, updateExerciseInDate } from '@/services/workoutService';
+import { Exercise, addExerciseToDate, copyWorkoutToToday, deleteExerciseFromDate, updateExerciseInDate } from '@/services/workoutService';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { collection, doc, getDocs, onSnapshot, query, updateDoc } from 'firebase/firestore';
@@ -17,6 +17,7 @@ import {
 } from 'react-native';
 import { Calendar } from 'react-native-calendars';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useUser } from '../_layout';
 
 const { width } = Dimensions.get('window');
 
@@ -24,7 +25,7 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
   UIManager.setLayoutAnimationEnabledExperimental(true);
 }
 
-const LEADERBOARD_EXERCISES = ["Bench Press", "Back Squat", "Front Squat", "Incline Bench Press", "Deadlift", "Clean", "Snatch", "Hang Clean", "Hang Snatch", "Block Clean", "Block Snatch", "Push Press", "Power Jerk", "Split Jerk", "Trap Bar Deadlift"];
+const LEADERBOARD_EXERCISES = ["Bench Press", "Back Squat", "Front Squat", "Incline Bench Press", "Deadlift", "Clean", "Snatch", "Jerk", "Push Press", "Trap Bar Deadlift"];
 const GROUP_ORDER = ["Primer", "Power Movements", "Main Lifts", "Accessories"];
 const QUICK_GROUPS = ["Primer", "Power Movements", "Main Lifts", "Accessories"];
 
@@ -32,6 +33,7 @@ export default function WorkoutsScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
   const insets = useSafeAreaInsets();
+  const { unit } = useUser();
   
   const [isExpanded, setIsExpanded] = useState(false);
   const [selectedDate, setSelectedDate] = useState(new Date());
@@ -43,14 +45,16 @@ export default function WorkoutsScreen() {
   const [allKnownExercises, setAllKnownExercises] = useState<string[]>(LEADERBOARD_EXERCISES);
   const [filteredSuggestions, setFilteredSuggestions] = useState<string[]>([]);
 
-  // Modal State
   const [modalVisible, setModalVisible] = useState(false);
+  const [copyModalVisible, setCopyModalVisible] = useState(false);
+  const [redoModalVisible, setRedoModalVisible] = useState(false);
+  
   const [editingId, setEditingId] = useState<string | null>(null);
   const [newExName, setNewExName] = useState('');
   const [newGroupTitle, setNewGroupTitle] = useState('Main Lifts');
   const [newSets, setNewSets] = useState('');
   const [repsArray, setRepsArray] = useState<string[]>([]);
-  const [repUnits, setRepUnits] = useState<string[]>([]); // Array state for multiple selection
+  const [repUnits, setRepUnits] = useState<string[]>([]); 
 
   const getFormattedStr = (date: Date) => {
     const offset = date.getTimezoneOffset();
@@ -133,10 +137,9 @@ export default function WorkoutsScreen() {
     setRepsArray(newArr);
   };
 
+  // FIXED: Standardized function name
   const toggleUnitSelection = (u: string) => {
-    setRepUnits((prev) => 
-      prev.includes(u) ? prev.filter(item => item !== u) : [...prev, u]
-    );
+    setRepUnits((prev) => prev.includes(u) ? prev.filter(item => item !== u) : [...prev, u]);
   };
 
   const toggleSuperset = async (ex1: Exercise, ex2: Exercise) => {
@@ -152,18 +155,30 @@ export default function WorkoutsScreen() {
     await updateDoc(doc(db, "customers", user.uid, "workouts", selectedStr), { exercises: updatedExercises });
   };
 
+  const executeCopyWorkout = async () => {
+    const user = auth.currentUser;
+    if (user) {
+      const res = await copyWorkoutToToday(user.uid, selectedStr, todayStr);
+      setCopyModalVisible(false);
+      if (res.success) router.push('/(main)/active-workout');
+      else Alert.alert("Error", String(res.error));
+    }
+  };
+
+  const executeUnlock = async () => {
+    const user = auth.currentUser;
+    if (user) {
+      await updateDoc(doc(db, "customers", user.uid, "workouts", selectedStr), { isFinished: false });
+      setRedoModalVisible(false);
+      if (selectedStr === todayStr) router.push('/(main)/active-workout');
+    }
+  };
+
   const handleSave = async () => {
     if (!newExName || !newSets || repsArray.some(r => r === '')) return Alert.alert("Error", "Fill all fields");
     const user = auth.currentUser;
     if (user) {
-      const data: Exercise = { 
-        id: editingId || Date.now().toString(), 
-        name: newExName.trim(), 
-        sets: newSets, 
-        reps: repsArray, 
-        groupTitle: newGroupTitle, 
-        repUnits: repUnits 
-      };
+      const data: Exercise = { id: editingId || Date.now().toString(), name: newExName.trim(), sets: newSets, reps: repsArray, groupTitle: newGroupTitle, repUnits };
       const res = editingId ? await updateExerciseInDate(user.uid, selectedStr, data) : await addExerciseToDate(user.uid, selectedStr, data);
       if (res.success) closeModal();
     }
@@ -173,13 +188,6 @@ export default function WorkoutsScreen() {
     setModalVisible(false); setEditingId(null);
     setNewExName(''); setNewSets(''); setRepsArray([]); setNewGroupTitle('Main Lifts');
     setRepUnits([]); setFilteredSuggestions([]);
-  };
-
-  const executeUnlock = async () => {
-    const user = auth.currentUser;
-    if (user) {
-      await updateDoc(doc(db, "customers", user.uid, "workouts", selectedStr), { isFinished: false });
-    }
   };
 
   const groupedExercises = exercises.reduce((groups: { [key: string]: Exercise[] }, ex) => {
@@ -227,7 +235,6 @@ export default function WorkoutsScreen() {
           {sortedGroupNames.map((groupName) => {
             const groupItems = groupedExercises[groupName];
             const isSupersetEligible = groupName !== "Main Lifts";
-
             return (
               <View key={groupName} style={styles.groupWrapper}>
                 <Text style={styles.groupTitleText}>{groupName.toUpperCase()}</Text>
@@ -239,23 +246,13 @@ export default function WorkoutsScreen() {
                   const isLastInSS = hasSuperset && (!nextItem || nextItem.supersetId !== item.supersetId);
                   const isSameSSAsNext = nextItem && item.supersetId && item.supersetId === nextItem.supersetId;
                   const ssColor = hasSuperset ? getSupersetColor(item.supersetId!) : 'transparent';
-
                   return (
                     <View key={item.id} style={{ zIndex: groupItems.length - idx }}>
                       <View style={[styles.exerciseRow, hasSuperset ? { borderLeftWidth: 1.5, borderRightWidth: 1.5, borderColor: ssColor, borderTopWidth: isFirstInSS ? 1.5 : 0, borderBottomWidth: isLastInSS ? 1.5 : 0, borderTopLeftRadius: isFirstInSS ? 15 : 0, borderTopRightRadius: isFirstInSS ? 15 : 0, borderBottomLeftRadius: isLastInSS ? 15 : 0, borderBottomRightRadius: isLastInSS ? 15 : 0, marginBottom: isLastInSS ? 15 : 0 } : { marginBottom: 15 }]}>
-                        <View style={styles.exerciseInfo}>
-                          <Text style={[styles.exerciseName, isFinished && { color: '#888' }]}>{item.name}</Text>
-                          <Text style={styles.exerciseMeta}>{formatMeta(item)}</Text>
-                        </View>
+                        <View style={styles.exerciseInfo}><Text style={[styles.exerciseName, isFinished && { color: '#888' }]}>{item.name}</Text><Text style={styles.exerciseMeta}>{formatMeta(item)}</Text></View>
                         {!isFinished && (
                           <View style={styles.actionRow}>
-                            <TouchableOpacity onPress={() => { 
-                                setEditingId(item.id); setNewExName(item.name); 
-                                setNewSets(item.sets); setRepsArray(item.reps); 
-                                setNewGroupTitle(item.groupTitle || 'Main Lifts'); 
-                                setRepUnits(Array.isArray(item.repUnits) ? item.repUnits : []); 
-                                setModalVisible(true); 
-                            }}><Ionicons name="pencil" size={18} color="#007AFF" /></TouchableOpacity>
+                            <TouchableOpacity onPress={() => { setEditingId(item.id); setNewExName(item.name); setNewSets(item.sets); setRepsArray(item.reps); setNewGroupTitle(item.groupTitle || 'Main Lifts'); setRepUnits(Array.isArray(item.repUnits) ? item.repUnits : []); setModalVisible(true); }}><Ionicons name="pencil" size={18} color="#007AFF" /></TouchableOpacity>
                             <TouchableOpacity onPress={() => { Alert.alert("Delete", "Remove?", [{ text: "Cancel" }, { text: "Delete", style: "destructive", onPress: async () => { const user = auth.currentUser; if (user) await deleteExerciseFromDate(user.uid, selectedStr, item.id); }}]); }}><Ionicons name="trash" size={18} color="#FF3B30" /></TouchableOpacity>
                           </View>
                         )}
@@ -277,14 +274,44 @@ export default function WorkoutsScreen() {
         {!isFinished ? (
           <>
             <TouchableOpacity style={styles.addExButton} onPress={() => setModalVisible(true)}><Text style={styles.addExTitle}>Add Exercise</Text></TouchableOpacity>
-            {exercises.length > 0 && selectedStr === todayStr && <TouchableOpacity style={[styles.startLiftingButton, isStarted && { backgroundColor: '#c62828' }]} onPress={() => router.push('/(main)/active-workout')}><Text style={styles.startLiftingText}>{isStarted ? "Resume Workout" : "Start Workout"}</Text></TouchableOpacity>}
+            {exercises.length > 0 && (
+                selectedStr === todayStr ? (
+                    <TouchableOpacity style={[styles.startLiftingButton, isStarted && { backgroundColor: '#c62828' }]} onPress={() => router.push('/(main)/active-workout')}><Text style={styles.startLiftingText}>{isStarted ? "Resume Workout" : "Start Workout"}</Text></TouchableOpacity>
+                ) : (
+                    <TouchableOpacity style={[styles.startLiftingButton, { backgroundColor: '#FFF', borderWidth: 1, borderColor: '#000' }]} onPress={() => setCopyModalVisible(true)}><Text style={[styles.startLiftingText, { color: '#000' }]}>Do Workout Today</Text></TouchableOpacity>
+                )
+            )}
           </>
         ) : (
-          <TouchableOpacity style={styles.finishedBtn} onPress={() => { Alert.alert("Unlock Session?", "Redo or edit?", [{ text: "Cancel" }, { text: "Yes", onPress: async () => { const user = auth.currentUser; if (user) { await updateDoc(doc(db, "customers", user.uid, "workouts", selectedStr), { isFinished: false }); if (selectedStr === todayStr) router.push('/(main)/active-workout'); } } }]); }}>
+          <TouchableOpacity style={styles.finishedBtn} onPress={() => setRedoModalVisible(true)}>
             <Text style={styles.finishedBtnText}>Session Complete</Text><Ionicons name="refresh" size={18} color="#FFF" />
           </TouchableOpacity>
         )}
       </View>
+
+      <Modal visible={redoModalVisible} animationType="fade" transparent={true}>
+        <View style={styles.centerModalOverlay}>
+          <View style={styles.confirmBox}>
+            <View style={styles.confirmIconCircle}><Ionicons name="refresh" size={40} color="#c62828" /></View>
+            <Text style={styles.confirmTitle}>Unlock Session?</Text>
+            <Text style={styles.confirmSubtitle}>Would you like to redo or edit this completed session?</Text>
+            <TouchableOpacity style={styles.confirmFinishBtn} onPress={executeUnlock}><Text style={styles.confirmFinishText}>Yes, Unlock</Text></TouchableOpacity>
+            <TouchableOpacity style={{ marginTop: 15 }} onPress={() => setRedoModalVisible(false)}><Text style={{ color: '#666', fontWeight: '600' }}>CANCEL</Text></TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={copyModalVisible} animationType="fade" transparent={true}>
+        <View style={styles.centerModalOverlay}>
+          <View style={styles.confirmBox}>
+            <View style={[styles.confirmIconCircle, {backgroundColor: '#E3F2FD'}]}><Ionicons name="copy-outline" size={40} color="#007AFF" /></View>
+            <Text style={styles.confirmTitle}>Move Workout?</Text>
+            <Text style={styles.confirmSubtitle}>Would you like to copy these exercises and start this session today?</Text>
+            <TouchableOpacity style={[styles.confirmFinishBtn, {backgroundColor: '#007AFF'}]} onPress={executeCopyWorkout}><Text style={styles.confirmFinishText}>Yes, Start Today</Text></TouchableOpacity>
+            <TouchableOpacity style={{ marginTop: 15 }} onPress={() => setCopyModalVisible(false)}><Text style={{ color: '#666', fontWeight: '600' }}>CANCEL</Text></TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
 
       <Modal visible={modalVisible} animationType="slide" transparent={true}>
         <Pressable style={styles.modalOverlay} onPress={closeModal} />
@@ -351,6 +378,13 @@ const styles = StyleSheet.create({
   startLiftingText: { color: '#FFF', fontWeight: 'bold' },
   finishedBtn: { backgroundColor: '#34C759', height: 55, borderRadius: 15, justifyContent: 'center', alignItems: 'center', flexDirection: 'row', gap: 10 },
   finishedBtnText: { color: '#FFF', fontWeight: 'bold', fontSize: 16 },
+  centerModalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 30 },
+  confirmBox: { backgroundColor: '#FFF', borderRadius: 25, width: width - 60, padding: 25, alignItems: 'center' },
+  confirmIconCircle: { width: 80, height: 80, borderRadius: 40, backgroundColor: '#FFEBEE', justifyContent: 'center', alignItems: 'center', marginBottom: 20 },
+  confirmTitle: { fontSize: 22, fontWeight: 'bold', marginBottom: 10 },
+  confirmSubtitle: { fontSize: 15, color: '#666', textAlign: 'center', marginBottom: 25 },
+  confirmFinishBtn: { backgroundColor: '#c62828', width: '100%', padding: 18, borderRadius: 15, alignItems: 'center' },
+  confirmFinishText: { color: '#FFF', fontWeight: 'bold' },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)' },
   sheetContainer: { position: 'absolute', bottom: 0, width: '100%', maxHeight: '85%' },
   modalContent: { backgroundColor: '#FFF', borderTopLeftRadius: 25, borderTopRightRadius: 25, paddingHorizontal: 25, paddingTop: 15 },
@@ -375,6 +409,7 @@ const styles = StyleSheet.create({
   repInput: { backgroundColor: '#F2F2F7', width: 55, height: 40, borderRadius: 8, textAlign: 'center', fontWeight: 'bold' },
   saveBtn: { backgroundColor: '#c62828', padding: 18, borderRadius: 12, alignItems: 'center' },
   saveBtnText: { color: '#FFF', fontWeight: 'bold', fontSize: 16 },
+  cancelBtn: { alignItems: 'center', marginTop: 15 },
   emptyContainer: { alignItems: 'center', marginTop: 40 },
   emptyText: { color: '#AAA' },
   ssLinkBtn: { alignSelf: 'center', height: 32, width: 32, justifyContent: 'center', alignItems: 'center', marginVertical: -24, zIndex: 999, backgroundColor: '#FFF', borderRadius: 16, shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 2, elevation: 5, borderWidth: 1, borderColor: '#EEE' },
