@@ -3,7 +3,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { collection, doc, getDoc, getDocs, query, updateDoc } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, KeyboardAvoidingView, Linking, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUser } from './_layout';
 
@@ -17,8 +17,9 @@ export default function LogExerciseScreen() {
   const [weights, setWeights] = useState<string[]>([]);
   const [repsArray, setRepsArray] = useState<string[]>([]);
   const [memo, setMemo] = useState('');
-  const [lastSessionMemo, setLastSessionMemo] = useState(''); // NEW
+  const [lastSessionMemo, setLastSessionMemo] = useState(''); 
   const [loading, setLoading] = useState(true);
+  const [videoUrl, setVideoUrl] = useState<string | null>(null);
 
   const getFormattedStr = (date: Date) => {
     const offset = date.getTimezoneOffset();
@@ -47,19 +48,20 @@ export default function LogExerciseScreen() {
           if (currentEx) {
             if (currentEx.loggedWeights) initialWeights = currentEx.loggedWeights;
             if (currentEx.reps) targetReps = currentEx.reps;
+            if (currentEx.videoUrl) setVideoUrl(currentEx.videoUrl); // Fetches the field you created in Firestore
             setMemo(currentEx.memo || '');
           }
         }
         setWeights(initialWeights);
         setRepsArray(targetReps);
 
-        // 2. Fetch Previous Session Memo (The fix)
+        // 2. Fetch Previous Session Memo
         const workoutsRef = collection(db, "customers", user.uid, "workouts");
         const historySnap = await getDocs(query(workoutsRef));
         
         const pastSessions: {date: string, memo: string}[] = [];
         historySnap.forEach(d => {
-          if (d.id === todayStr) return; // Skip today
+          if (d.id === todayStr) return; 
           const exMatch = d.data().exercises?.find((ex: any) => ex.name === exerciseName);
           if (exMatch && exMatch.memo) {
             pastSessions.push({ date: d.id, memo: exMatch.memo });
@@ -67,7 +69,7 @@ export default function LogExerciseScreen() {
         });
 
         if (pastSessions.length > 0) {
-          pastSessions.sort((a, b) => b.date.localeCompare(a.date)); // Newest first
+          pastSessions.sort((a, b) => b.date.localeCompare(a.date)); 
           setLastSessionMemo(pastSessions[0].memo);
         }
 
@@ -80,6 +82,19 @@ export default function LogExerciseScreen() {
     const firstWeight = weights[0];
     if (!firstWeight) return; 
     setWeights(new Array(weights.length).fill(firstWeight));
+  };
+
+  const handleVideoPress = async () => {
+    if (videoUrl) {
+      const canOpen = await Linking.canOpenURL(videoUrl);
+      if (canOpen) {
+        await Linking.openURL(videoUrl);
+      } else {
+        Alert.alert("Error", "The video link is invalid.");
+      }
+    } else {
+      Alert.alert("Video not available", "There is no video connected to this exercise.");
+    }
   };
 
   const saveAndGoBack = async () => {
@@ -116,7 +131,11 @@ export default function LogExerciseScreen() {
           <Text style={styles.targetText}>{sets} Sets Planned</Text>
 
           <View style={styles.actionButtons}>
-            <TouchableOpacity style={styles.actionBtn}><Ionicons name="videocam" size={20} color="#FFF" /><Text style={styles.actionBtnText}>Video</Text></TouchableOpacity>
+            <TouchableOpacity style={styles.actionBtn} onPress={handleVideoPress}>
+              <Ionicons name="videocam" size={20} color="#FFF" />
+              <Text style={styles.actionBtnText}>Video</Text>
+            </TouchableOpacity>
+            
             <TouchableOpacity style={[styles.actionBtn, { backgroundColor: '#000' }]} onPress={() => router.push({ pathname: '/(main)/exercise-history', params: { exerciseName: exerciseName as string } })}>
               <Ionicons name="time" size={20} color="#FFF" /><Text style={styles.actionBtnText}>History</Text>
             </TouchableOpacity>
@@ -182,12 +201,9 @@ const styles = StyleSheet.create({
   label: { fontSize: 12, fontWeight: '800', color: '#AAA', letterSpacing: 1 },
   allBtn: { backgroundColor: '#F2F2F7', paddingVertical: 4, paddingHorizontal: 10, borderRadius: 6 },
   allBtnText: { fontSize: 10, fontWeight: 'bold', color: '#c62828' },
-  
-  // NEW: Last Memo Display
   lastMemoBox: { backgroundColor: '#F2F2F7', padding: 12, borderRadius: 12, marginBottom: 10, borderLeftWidth: 3, borderLeftColor: '#CCC' },
   lastMemoLabel: { fontSize: 9, fontWeight: '900', color: '#888', marginBottom: 4 },
   lastMemoText: { fontSize: 13, color: '#555', fontStyle: 'italic' },
-  
   memoInput: { backgroundColor: '#F9F9FB', borderRadius: 15, padding: 15, minHeight: 80, fontSize: 16, textAlignVertical: 'top', borderWidth: 1, borderColor: '#EEE' },
   setRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#F2F2F7' },
   setLabel: { fontSize: 16, fontWeight: '700' },
