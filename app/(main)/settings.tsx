@@ -4,6 +4,8 @@ import { useRouter } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
 import React, { useState } from 'react';
 import {
+  Alert,
+  Linking,
   ScrollView,
   StyleSheet,
   Switch,
@@ -31,6 +33,32 @@ export default function SettingsScreen() {
       controlsColor: '#c62828' 
     });
   };
+
+  const handleContactSupport = async () => {
+  const email = 'trainingroom.coach@gmail.com';
+  const subject = 'Support Request - Training Room App';
+  const body = 'Please describe your issue or feedback here...';
+  
+  // Construct the URL with encoded characters for spaces/symbols
+  const url = `mailto:${email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+
+  try {
+    const supported = await Linking.canOpenURL(url);
+    
+    if (supported) {
+      await Linking.openURL(url);
+    } else {
+      // If the device has no mail app configured (common in simulators or some Androids)
+      Alert.alert(
+        "Contact Support",
+        `Please email us at:\n${email}`,
+        [{ text: "OK" }]
+      );
+    }
+  } catch (error) {
+    Alert.alert("Error", "Could not open your email app.");
+  }
+};
 
   return (
     <View style={styles.container}>
@@ -133,12 +161,12 @@ export default function SettingsScreen() {
               onPress={() => openLegalLink('https://www.trainingroomcoach.com/terms-and-conditions')} 
             />
             <View style={styles.divider} />
-            <SettingRow 
-              icon="help-circle-outline" 
-              title="Contact Support" 
-              showArrow 
-              onPress={() => openLegalLink('mailto:trainingroom.coach@gmail.com')} 
-            />
+              <SettingRow 
+                icon="help-circle-outline" 
+                title="Contact Support" 
+                showArrow 
+                onPress={handleContactSupport} // Call the new function here
+              />
           </View>
         </View>
 

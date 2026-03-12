@@ -28,6 +28,13 @@ import { useUser } from '../_layout';
 const screenWidth = Dimensions.get("window").width;
 const CHART_CONTAINER_WIDTH = screenWidth - 40;
 
+// EVENT LISTS
+const RUNNER_EVENTS = ['100m', '200m', '400m', '800m', '1500m', '3000m', '5000m', '10000m'];
+const THROWER_EVENTS = ['Shot Put', 'Discus', 'Hammer', 'Javelin', 'Weight Throw'];
+const JUMPER_EVENTS = ['Long Jump', 'Triple Jump', 'High Jump', 'Pole Vault'];
+const DISTANCE_EVENTS = ['800m', '1500m', '3000m', '5000m', '10000m'];
+const ALL_EVENTS_ORDER = [...RUNNER_EVENTS, ...THROWER_EVENTS, ...JUMPER_EVENTS];
+
 export default function ProfileScreen() {
   const router = useRouter();
   const { fullName, handle, profileImage, unit } = useUser();
@@ -41,14 +48,19 @@ export default function ProfileScreen() {
   // Scroll indices
   const [tonnageIdx, setTonnageIdx] = useState(0);
   const [combinedIdx, setCombinedIdx] = useState(0);
+  const [meetChartIdx, setMeetChartIdx] = useState(0);
 
   // Meet Tracker States
   const [meetModalVisible, setMeetModalVisible] = useState(false);
-  const [meetType, setMeetType] = useState<'runner' | 'thrower'>('runner');
+  const [meetType, setMeetType] = useState<'runner' | 'thrower' | 'jumper'>('runner');
+  const [meetEvent, setMeetEvent] = useState('');
   const [meetDate, setMeetDate] = useState('');
   const [meetValue, setMeetValue] = useState('');
+  const [meetMin, setMeetMin] = useState(''); 
+  const [meetSec, setMeetSec] = useState(''); 
   const [meetName, setMeetName] = useState('');
   const [recentMeets, setRecentMeets] = useState<any[]>([]);
+  const [meetChartData, setMeetChartData] = useState<any[]>([]);
 
   // Data States
   const [stats, setStats] = useState({ workoutCount: 0, consistency: 0, bestRank: '--', loading: true });
@@ -76,6 +88,17 @@ export default function ProfileScreen() {
     return `${feet}'${inches}"`;
   };
 
+  const formatMeetResult = (value: string, event: string) => {
+    if (DISTANCE_EVENTS.includes(event)) {
+      const totalSec = parseFloat(value);
+      if (isNaN(totalSec)) return value;
+      const mins = Math.floor(totalSec / 60);
+      const secs = (totalSec % 60).toFixed(2);
+      return `${mins}:${parseFloat(secs) < 10 ? '0' : ''}${secs}`;
+    }
+    return value;
+  };
+
   useEffect(() => {
     const user = auth.currentUser;
     if (!user) return;
@@ -87,8 +110,29 @@ export default function ProfileScreen() {
       }
     });
 
-    const unsubMeets = onSnapshot(query(collection(db, "customers", user.uid, "meets"), orderBy("createdAt", "desc")), (snap) => {
-      setRecentMeets(snap.docs.map(d => ({ id: d.id, ...d.data() })).slice(0, 3));
+    const unsubMeets = onSnapshot(query(collection(db, "customers", user.uid, "meets"), orderBy("date", "asc")), (snap) => {
+      const allMeets = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      setRecentMeets([...allMeets].reverse());
+
+      const grouped: Record<string, any[]> = {};
+      allMeets.forEach((m: any) => {
+        if (!m.event) return;
+        if (!grouped[m.event]) grouped[m.event] = [];
+        grouped[m.event].push(m);
+      });
+
+      const formattedCharts = Object.keys(grouped)
+        .sort((a, b) => ALL_EVENTS_ORDER.indexOf(a) - ALL_EVENTS_ORDER.indexOf(b))
+        .map(eventName => {
+          const dataPoints = grouped[eventName];
+          return {
+            event: eventName,
+            type: dataPoints[0].type,
+            labels: dataPoints.map(d => d.date.split('/').slice(0, 2).join('/')),
+            datasets: [{ data: dataPoints.map(d => parseFloat(d.value) || 0) }]
+          };
+        });
+      setMeetChartData(formattedCharts);
     });
 
     const processData = async () => {
@@ -103,11 +147,9 @@ export default function ProfileScreen() {
         const last31Days = new Date(now.getTime() - (31 * 24 * 60 * 60 * 1000));
         const last365Days = new Date(now.getTime() - (365 * 24 * 60 * 60 * 1000));
 
-        // Logic for PRs achieved this week
         const maxWeights: Record<string, {weight: number, date: string}> = {};
         allWorkouts.forEach(w => {
           w.exercises?.forEach((ex: any) => {
-            // Check loggedWeights array for the max value in this specific session
             const sessionMax = ex.loggedWeights ? Math.max(...ex.loggedWeights.map((v:any) => parseFloat(v) || 0)) : 0;
             if (!maxWeights[ex.name] || sessionMax > maxWeights[ex.name].weight) {
                 maxWeights[ex.name] = { weight: sessionMax, date: w.id };
@@ -171,16 +213,33 @@ export default function ProfileScreen() {
           combined: { week: wSet.c, month: mSet.c, year: ySet.c },
         });
 
-        let tSched = 0, tAct = 0, fCount = 0;
+        let fCount = 0;
+        const finishedWorkoutDates = new Set();
         allWorkouts.forEach(w => {
-          if (w.isFinished) fCount++;
-          w.exercises?.forEach((ex: any) => {
-            tSched += parseInt(ex.sets) || 0;
-            tAct += ex.completedSetsCount || 0;
-          });
+          if (w.isFinished) {
+            fCount++;
+            finishedWorkoutDates.add(w.id); // Assuming ID is YYYY-MM-DD
+          }
         });
-        const completionRatio = tSched > 0 ? (tAct / tSched) : 0;
-        setStats({ workoutCount: fCount, consistency: fCount > 0 ? Math.round(70 + (completionRatio * 30)) : 0, bestRank: fCount > 0 ? '#1' : '--', loading: false });
+
+        // MOMENTUM DECAY MODEL
+        let momentum = 85; // Starting baseline
+        for (let i = 30; i >= 0; i--) {
+          const d = new Date();
+          d.setDate(d.getDate() - i);
+          const dateStr = d.toISOString().split('T')[0];
+
+          if (finishedWorkoutDates.has(dateStr)) {
+            // Boost toward 100
+            momentum = (momentum * 0.9) + 11;
+          } else {
+            // Gentle decay (loses only 2% per day missed)
+            momentum = momentum * 0.98;
+          }
+        }
+
+        const consistencyScore = fCount > 0 ? Math.min(100, Math.round(momentum)) : 0;
+        setStats({ workoutCount: fCount, consistency: consistencyScore, bestRank: fCount > 0 ? '#1' : '--', loading: false });
       } catch (e) { console.error(e); }
     };
 
@@ -203,9 +262,29 @@ export default function ProfileScreen() {
   };
 
   const handleSaveMeet = async () => {
-    if (!meetName || !meetValue || !meetDate) return Alert.alert("Error", "Fill all fields");
-    const res = await saveMeetResult(auth.currentUser!.uid, { name: meetName, type: meetType, date: meetDate, value: meetValue });
-    if (res.success) { setMeetModalVisible(false); setMeetName(''); setMeetValue(''); setMeetDate(''); }
+    let finalValue = meetValue;
+    if (DISTANCE_EVENTS.includes(meetEvent)) {
+      if (!meetMin || !meetSec) return Alert.alert("Error", "Enter minutes and seconds");
+      const totalSeconds = (parseInt(meetMin) * 60) + parseFloat(meetSec);
+      finalValue = totalSeconds.toString();
+    }
+    if (!meetName || !finalValue || !meetDate || !meetEvent) return Alert.alert("Error", "Fill all fields and choose an event");
+    const res = await saveMeetResult(auth.currentUser!.uid, { 
+      name: meetName, 
+      type: meetType, 
+      event: meetEvent,
+      date: meetDate, 
+      value: finalValue 
+    });
+    if (res.success) { 
+        setMeetModalVisible(false); 
+        setMeetName(''); 
+        setMeetValue(''); 
+        setMeetMin('');
+        setMeetSec('');
+        setMeetDate(''); 
+        setMeetEvent('');
+    }
   };
 
   const handleDeleteMeet = (meetId: string) => {
@@ -249,7 +328,6 @@ export default function ProfileScreen() {
                 datasets.push({ data: [1, 10], color: () => 'transparent', withDots: false });
               }
               const maxVal = Math.max(...datasets[0].data);
-
               return (
                 <View style={styles.graphSlide}>
                   <Text style={styles.rangeIndicator}>{item.label}</Text>
@@ -258,7 +336,7 @@ export default function ProfileScreen() {
                     width={CHART_CONTAINER_WIDTH - 20} 
                     height={210} 
                     fromZero={type === 'tonnage'} 
-                    withShadow={false} // REMOVES AREA SHADING
+                    withShadow={false}
                     segments={type === 'tonnage' ? (maxVal > 0 ? 5 : 1) : 9}
                     formatYLabel={(v) => type === 'tonnage' && parseFloat(v) >= 1000 ? `${(parseFloat(v)/1000).toFixed(1)}k` : Math.round(parseFloat(v)).toString()} 
                     chartConfig={{
@@ -266,7 +344,7 @@ export default function ProfileScreen() {
                       decimalPlaces:0, 
                       color:(o=1)=> baseColor ? `${baseColor}${o})` : `rgba(0,0,0,${o})`, 
                       labelColor:()=>'#555', 
-                      fillShadowGradientFromOpacity: 0, // EXPLICIT SHADOW REMOVAL
+                      fillShadowGradientFromOpacity: 0,
                       fillShadowGradientToOpacity: 0,
                       propsForDots: { r: "4", strokeWidth: "2" }
                     }} 
@@ -293,12 +371,59 @@ export default function ProfileScreen() {
     );
   };
 
+  const renderMeetGraphSection = () => {
+    if (meetChartData.length === 0) return null;
+    return (
+      <View style={styles.chartWrapper}>
+        <Text style={styles.sectionTitle}>Meet Progress</Text>
+        <View style={styles.chartCard}>
+          <FlatList
+            data={meetChartData}
+            horizontal
+            pagingEnabled
+            onScroll={(e) => setMeetChartIdx(Math.round(e.nativeEvent.contentOffset.x / CHART_CONTAINER_WIDTH))}
+            showsHorizontalScrollIndicator={false}
+            renderItem={({ item }) => (
+                <View style={styles.graphSlide}>
+                  <Text style={styles.rangeIndicator}>{item.event.toUpperCase()}</Text>
+                  <LineChart 
+                    data={item} 
+                    width={CHART_CONTAINER_WIDTH - 20} 
+                    height={210} 
+                    withShadow={false}
+                    chartConfig={{
+                      backgroundColor:"#FFF", backgroundGradientFrom:"#FFF", backgroundGradientTo:"#FFF",
+                      decimalPlaces: 2, 
+                      color:(o=1)=> `rgba(0, 122, 255, ${o})`, 
+                      labelColor:()=>'#555', 
+                      fillShadowGradientFromOpacity: 0,
+                      fillShadowGradientToOpacity: 0,
+                      propsForDots: { r: "4", strokeWidth: "2" }
+                    }} 
+                    style={{marginBottom:10}} 
+                  />
+                </View>
+            )}
+          />
+          <View style={styles.dotRow}>
+            {meetChartData.map((_, i) => <View key={i} style={[styles.dot, meetChartIdx === i ? styles.activeDot : styles.inactiveDot]} />)}
+          </View>
+        </View>
+      </View>
+    );
+  };
+
+  const getEventList = () => {
+    if (meetType === 'runner') return RUNNER_EVENTS;
+    if (meetType === 'thrower') return THROWER_EVENTS;
+    return JUMPER_EVENTS;
+  };
+
   return (
     <View style={styles.container}>
       <StatusBar style="dark" />
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         
-        {/* HEADER */}
         <View style={styles.profileHeader}>
           <View style={styles.avatarContainer}>
             <View style={styles.avatarCircle}>{profileImage ? <Image source={{ uri: profileImage }} style={styles.profilePhoto} /> : <Ionicons name="person" size={50} color="#666" />}</View>
@@ -310,18 +435,16 @@ export default function ProfileScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* STATS BAR */}
         <View style={styles.statsRow}>
           <View style={styles.statItem}><Text style={styles.statValue}>{stats.workoutCount}</Text><Text style={styles.statLabel}>Workouts</Text></View>
           <View style={[styles.statItem, styles.statBorder]}><Text style={styles.statValue}>{stats.bestRank}</Text><Text style={styles.statLabel}>Best Rank</Text></View>
           <View style={styles.statItem}><Text style={styles.statValue}>{stats.consistency}%</Text><Text style={styles.statLabel}>Consistency</Text></View>
         </View>
 
-        {/* GRAPHS */}
         {renderSectionGraph('tonnage', `Total Tonnage (${unit})`, 'rgba(198, 40, 40, ', setTonnageIdx, tonnageIdx)}
+        {renderMeetGraphSection()}
         {renderSectionGraph('combined', 'Readiness & Soreness', '', setCombinedIdx, combinedIdx)}
 
-        {/* BODY METRICS */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Body Metrics</Text>
           <TouchableOpacity style={styles.metricsCard} onPress={() => router.push('/(main)/body-metrics')}>
@@ -331,7 +454,6 @@ export default function ProfileScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* NEW: WEEKLY PRs */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>This Week's PRs</Text>
           {weeklyPRs.length === 0 ? (
@@ -349,21 +471,24 @@ export default function ProfileScreen() {
           )}
         </View>
 
-        {/* MEET TRACKER */}
         <View style={styles.section}>
           <View style={styles.rowBetween}><Text style={styles.sectionTitle}>Meet Tracker</Text><TouchableOpacity onPress={() => setMeetModalVisible(true)}><Text style={styles.addText}>+ Add Result</Text></TouchableOpacity></View>
-          <View style={styles.card}>
-            {recentMeets.length === 0 ? <Text style={styles.emptyText}>No results logged.</Text> : recentMeets.map((m, i) => (
-              <View key={i} style={styles.meetRow}>
-                <View style={{ flex: 1 }}><Text style={styles.meetName}>{m.name}</Text><Text style={styles.meetDate}>{m.date}</Text></View>
-                <Text style={styles.meetValue}>{m.value}{m.type === 'thrower' ? 'm' : 's'}</Text>
-                <TouchableOpacity onPress={() => handleDeleteMeet(m.id)}><Ionicons name="trash-outline" size={18} color="#FF3B30" /></TouchableOpacity>
-              </View>
-            ))}
+          <View style={[styles.card, { maxHeight: 220 }]}>
+            <ScrollView nestedScrollEnabled={true} showsVerticalScrollIndicator={false}>
+              {recentMeets.length === 0 ? <Text style={styles.emptyText}>No results logged.</Text> : recentMeets.map((m, i) => (
+                <View key={i} style={styles.meetRow}>
+                  <View style={{ flex: 1 }}><Text style={styles.meetName}>{m.event} - {m.name}</Text><Text style={styles.meetDate}>{m.date}</Text></View>
+                  <Text style={styles.meetValue}>
+                    {formatMeetResult(m.value, m.event)}
+                    {m.type === 'runner' ? (DISTANCE_EVENTS.includes(m.event) ? '' : 's') : 'm'}
+                  </Text>
+                  <TouchableOpacity onPress={() => handleDeleteMeet(m.id)}><Ionicons name="trash-outline" size={18} color="#FF3B30" /></TouchableOpacity>
+                </View>
+              ))}
+            </ScrollView>
           </View>
         </View>
 
-        {/* NAVIGATION */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>History</Text>
           <TouchableOpacity style={styles.optionRow} onPress={() => router.push('/(main)/registered-exercises')}><View style={[styles.optionIconCircle, { backgroundColor: '#FFEBEE' }]}><Ionicons name="list-circle" size={24} color="#c62828" /></View><View style={{flex:1,marginLeft:15}}><Text style={styles.optionTitle}>Registered Exercises</Text></View><Ionicons name="chevron-forward" size={20} color="#CCC" /></TouchableOpacity>
@@ -374,7 +499,58 @@ export default function ProfileScreen() {
 
       {/* MEET MODAL */}
       <Modal visible={meetModalVisible} transparent animationType="slide">
-        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{flex:1}}><View style={styles.modalOverlay}><View style={styles.modalContent}><Text style={styles.modalTitle}>New Meet Result</Text><View style={styles.typeSelector}><TouchableOpacity style={[styles.typeBtn, meetType === 'runner' && styles.activeType]} onPress={() => setMeetType('runner')}><Text style={[styles.typeText, meetType === 'runner' && {color:'#FFF'}]}>Runner</Text></TouchableOpacity><TouchableOpacity style={[styles.typeBtn, meetType === 'thrower' && styles.activeType]} onPress={() => setMeetType('thrower')}><Text style={[styles.typeText, meetType === 'thrower' && {color:'#FFF'}]}>Field/Jump</Text></TouchableOpacity></View><Text style={styles.inputLabel}>MEET NAME</Text><TextInput style={styles.input} placeholderTextColor="#555" value={meetName} onChangeText={setMeetName} /><Text style={styles.inputLabel}>DATE</Text><TextInput style={styles.input} placeholder="DD/MM/YYYY" placeholderTextColor="#555" value={meetDate} onChangeText={handleDateInput} keyboardType="numeric" maxLength={10} /><Text style={styles.inputLabel}>{meetType === 'runner' ? "RESULT (SECONDS)" : "RESULT (METERS)"}</Text><View style={styles.unitInputContainer}><TextInput style={[styles.input, { flex: 1, marginBottom: 0 }]} placeholderTextColor="#555" value={meetValue} onChangeText={setMeetValue} keyboardType="numeric" /><Text style={styles.fixedUnit}>{meetType === 'runner' ? 's' : 'm'}</Text></View><TouchableOpacity style={styles.saveBtn} onPress={handleSaveMeet}><Text style={styles.saveBtnText}>Save Result</Text></TouchableOpacity><TouchableOpacity onPress={() => setMeetModalVisible(false)}><Text style={styles.cancelText}>Cancel</Text></TouchableOpacity></View></View></KeyboardAvoidingView>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{flex:1}}>
+            <View style={styles.modalOverlay}>
+                <View style={styles.modalContent}>
+                    <Text style={styles.modalTitle}>New Meet Result</Text>
+                    
+                    <View style={styles.typeSelector}>
+                        <TouchableOpacity style={[styles.typeBtn, meetType === 'runner' && styles.activeType]} onPress={() => {setMeetType('runner'); setMeetEvent('');}}><Text style={[styles.typeText, meetType === 'runner' && {color:'#FFF'}]}>Runners</Text></TouchableOpacity>
+                        <TouchableOpacity style={[styles.typeBtn, meetType === 'thrower' && styles.activeType]} onPress={() => {setMeetType('thrower'); setMeetEvent('');}}><Text style={[styles.typeText, meetType === 'thrower' && {color:'#FFF'}]}>Throwers</Text></TouchableOpacity>
+                        <TouchableOpacity style={[styles.typeBtn, meetType === 'jumper' && styles.activeType]} onPress={() => {setMeetType('jumper'); setMeetEvent('');}}><Text style={[styles.typeText, meetType === 'jumper' && {color:'#FFF'}]}>Jumpers</Text></TouchableOpacity>
+                    </View>
+
+                    <Text style={styles.inputLabel}>CHOOSE EVENT</Text>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{marginBottom: 20}} contentContainerStyle={{paddingVertical: 5}}>
+                        {getEventList().map((ev) => (
+                            <TouchableOpacity key={ev} onPress={() => setMeetEvent(ev)} style={[styles.eventChip, meetEvent === ev && styles.activeEventChip]}>
+                                <Text style={[styles.eventChipText, meetEvent === ev && {color: '#FFF'}]}>{ev}</Text>
+                            </TouchableOpacity>
+                        ))}
+                    </ScrollView>
+
+                    <Text style={styles.inputLabel}>MEET NAME</Text>
+                    <TextInput style={styles.input} placeholderTextColor="#555" value={meetName} onChangeText={setMeetName} />
+                    
+                    <Text style={styles.inputLabel}>DATE</Text>
+                    <TextInput style={styles.input} placeholder="DD/MM/YYYY" placeholderTextColor="#555" value={meetDate} onChangeText={handleDateInput} keyboardType="numeric" maxLength={10} />
+                    
+                    <Text style={styles.inputLabel}>
+                      {meetType === 'runner' ? (DISTANCE_EVENTS.includes(meetEvent) ? "RESULT (MINS : SECS)" : "RESULT (SECONDS)") : "RESULT (METERS)"}
+                    </Text>
+
+                    {DISTANCE_EVENTS.includes(meetEvent) ? (
+                        <View style={styles.timeInputRow}>
+                          <View style={styles.unitInputContainer}>
+                            <TextInput style={[styles.input, { flex: 1, marginBottom: 0 }]} placeholder="MM" placeholderTextColor="#AAA" value={meetMin} onChangeText={setMeetMin} keyboardType="numeric" />
+                          </View>
+                          <Text style={{fontWeight: '900', fontSize: 18, marginHorizontal: 10}}>:</Text>
+                          <View style={styles.unitInputContainer}>
+                            <TextInput style={[styles.input, { flex: 1, marginBottom: 0 }]} placeholder="SS.ms" placeholderTextColor="#AAA" value={meetSec} onChangeText={setMeetSec} keyboardType="numeric" />
+                          </View>
+                        </View>
+                    ) : (
+                        <View style={styles.unitInputContainer}>
+                            <TextInput style={[styles.input, { flex: 1, marginBottom: 0 }]} placeholderTextColor="#555" value={meetValue} onChangeText={setMeetValue} keyboardType="numeric" />
+                            <Text style={styles.fixedUnit}>{meetType === 'runner' ? 's' : 'm'}</Text>
+                        </View>
+                    )}
+
+                    <TouchableOpacity style={styles.saveBtn} onPress={handleSaveMeet}><Text style={styles.saveBtnText}>Save Result</Text></TouchableOpacity>
+                    <TouchableOpacity onPress={() => setMeetModalVisible(false)}><Text style={styles.cancelText}>Cancel</Text></TouchableOpacity>
+                </View>
+            </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* USERNAME MODAL */}
@@ -442,10 +618,10 @@ const styles = StyleSheet.create({
   saveBtnText: { color: '#FFF', fontWeight: 'bold', fontSize: 16 },
   modalContent: { backgroundColor: '#FFF', borderRadius: 25, padding: 25, width: '90%' },
   modalTitle: { fontSize: 18, fontWeight: '900', marginBottom: 20, textAlign: 'center' },
-  typeSelector: { flexDirection: 'row', gap: 10, marginBottom: 25 },
+  typeSelector: { flexDirection: 'row', gap: 5, marginBottom: 25 },
   typeBtn: { flex: 1, padding: 12, borderRadius: 12, backgroundColor: '#F2F2F7', alignItems: 'center' },
   activeType: { backgroundColor: '#000' },
-  typeText: { fontWeight: 'bold', fontSize: 11, color: '#888' },
+  typeText: { fontWeight: 'bold', fontSize: 10, color: '#888' },
   inputLabel: { fontSize: 10, fontWeight: '800', color: '#333', marginBottom: 8 },
   input: { backgroundColor: '#F2F2F7', padding: 15, borderRadius: 12, marginBottom: 20, fontSize: 16, color: '#000', fontWeight: '600' },
   unitInputContainer: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F2F2F7', borderRadius: 12, paddingRight: 15, marginBottom: 20 },
@@ -456,4 +632,8 @@ const styles = StyleSheet.create({
   legendDot: { width: 8, height: 8, borderRadius: 4 },
   legendText: { fontSize: 10, fontWeight: '700', color: '#888' },
   emptyText: { textAlign: 'center', color: '#AAA', fontSize: 12 },
+  eventChip: { paddingHorizontal: 15, paddingVertical: 8, borderRadius: 20, backgroundColor: '#F2F2F7', marginRight: 8, borderWidth: 1, borderColor: '#EEE', height: 40, justifyContent: 'center' },
+  activeEventChip: { backgroundColor: '#c62828', borderColor: '#c62828' },
+  eventChipText: { fontSize: 12, fontWeight: 'bold', color: '#666' },
+  timeInputRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 20 },
 });

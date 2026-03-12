@@ -1,9 +1,9 @@
 import { auth, db } from '@/fireBaseConfig';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { collection, getDocs, query } from 'firebase/firestore';
+import { collection, doc, getDocs, query, writeBatch } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, FlatList, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, FlatList, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUser } from './_layout';
 
@@ -63,11 +63,58 @@ export default function RegisteredExercisesScreen() {
     finally { setLoading(false); }
   };
 
+  const handleDelete = (name: string) => {
+    Alert.alert(
+      "Delete Exercise",
+      `Are you sure you want to delete "${name}"? This will remove all recorded logs for this exercise across your entire history.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        { 
+          text: "Delete", 
+          style: "destructive", 
+          onPress: async () => {
+            setLoading(true);
+            try {
+              const user = auth.currentUser;
+              if (!user) return;
+
+              const q = query(collection(db, "customers", user.uid, "workouts"));
+              const snap = await getDocs(q);
+              const batch = writeBatch(db);
+              let count = 0;
+
+              snap.forEach((workoutDoc) => {
+                const data = workoutDoc.data();
+                if (data.exercises) {
+                  const filtered = data.exercises.filter((ex: any) => ex.name.trim() !== name.trim());
+                  // Only update if the exercise was actually in this workout
+                  if (filtered.length !== data.exercises.length) {
+                    batch.update(doc(db, "customers", user.uid, "workouts", workoutDoc.id), {
+                      exercises: filtered
+                    });
+                    count++;
+                  }
+                }
+              });
+
+              if (count > 0) {
+                await batch.commit();
+              }
+              await fetchAll();
+            } catch (e) {
+              console.error(e);
+              setLoading(false);
+            }
+          }
+        }
+      ]
+    );
+  };
+
   useEffect(() => { fetchAll(); }, []);
 
-  // --- UPDATED: HIT ON RETURN '--' LOGIC ---
   const formatDate = (dateStr: string | null) => {
-    if (!dateStr) return '--'; // Your requested change
+    if (!dateStr) return '--'; 
     const [y, m, d] = dateStr.split('-').map(Number);
     return new Date(y, m - 1, d).toLocaleDateString('en-US', { 
       month: 'short', 
@@ -108,7 +155,6 @@ export default function RegisteredExercisesScreen() {
                       <View style={styles.statsRow}>
                           <View style={styles.statDetail}>
                               <Text style={styles.statLabel}>PR</Text>
-                              {/* Using '--' if weight is 0 to match your date logic */}
                               <Text style={styles.statValue}>{item.prWeight > 0 ? `${item.prWeight}${unit}` : '--'}</Text>
                           </View>
                           <View style={styles.statDivider} />
@@ -118,6 +164,14 @@ export default function RegisteredExercisesScreen() {
                           </View>
                       </View>
                   </View>
+                  
+                  <TouchableOpacity 
+                    onPress={() => handleDelete(item.name)}
+                    style={{ padding: 10, marginRight: 5 }}
+                  >
+                    <Ionicons name="trash-outline" size={20} color="#FF3B30" />
+                  </TouchableOpacity>
+
                   <Ionicons name="chevron-forward" size={18} color="#CCC" />
               </TouchableOpacity>
             </View>

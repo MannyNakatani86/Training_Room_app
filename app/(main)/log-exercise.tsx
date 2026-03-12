@@ -10,6 +10,7 @@ import { useUser } from './_layout';
 export default function LogExerciseScreen() {
   const router = useRouter();
   const { unit } = useUser();
+  const {headerHeight} = useUser();
   const insets = useSafeAreaInsets();
   const { exerciseId, exerciseName, sets } = useLocalSearchParams<{ exerciseId: string; exerciseName: string; sets: string; }>();
   
@@ -101,10 +102,12 @@ export default function LogExerciseScreen() {
 
   return (
     <View style={styles.container }>
-      <View style={[styles.header, { paddingTop: insets.top }]}>
-        <TouchableOpacity onPress={() => router.back()}><Ionicons name="chevron-back" size={28} color="#000" /></TouchableOpacity>
+      <View style={[styles.header, { height: headerHeight, paddingTop: insets.top }]}>
+        <TouchableOpacity onPress={() => router.back()}>
+            <Ionicons name="chevron-back" size={26} color="#000" />
+        </TouchableOpacity>
         <Text style={styles.headerTitle}>LOG SESSION</Text>
-        <View style={{ width: 28 }} />
+        <View style={{ width: 40 }} />
       </View>
 
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
@@ -158,8 +161,16 @@ export default function LogExerciseScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#FFF' },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 15, borderBottomWidth: 1, borderBottomColor: '#F2F2F7' },
-  headerTitle: { fontSize: 14, fontWeight: 'bold', letterSpacing: 1 },
+  header: {
+    flexDirection: 'row', 
+    justifyContent: 'space-between', 
+    alignItems: 'center', 
+    paddingHorizontal: 15, 
+    backgroundColor: '#FFF',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E5E7',
+  },
+  headerTitle: { fontSize: 18, fontWeight: '800', color: '#000' },
   scrollContent: { padding: 25 },
   exerciseTitle: { fontSize: 32, fontWeight: '900', color: '#000' },
   targetText: { fontSize: 16, color: '#666', marginTop: 5, marginBottom: 25 },
