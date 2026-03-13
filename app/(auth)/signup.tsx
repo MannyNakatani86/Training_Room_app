@@ -63,8 +63,16 @@ export default function SignupScreen() {
 
     const result = await signUp(email, password);
     if (result.success && result.user) {
+      // Create the cleaned version once to use for both fields
+      const lowerUsername = username.toLowerCase().trim();
+
       await saveCustomerData(result.user.uid, { 
-        firstName, lastName, dob, email, username: username.toLowerCase().trim(),
+        firstName, 
+        lastName, 
+        dob, 
+        email, 
+        username: lowerUsername,
+        handle: lowerUsername, // ADDED THIS: Profile page needs 'handle' to display correctly
         name: `${firstName} ${lastName}`
       });
 

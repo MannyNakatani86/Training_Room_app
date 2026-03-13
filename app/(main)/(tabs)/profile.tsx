@@ -44,6 +44,12 @@ export default function ProfileScreen() {
   const [usernameModalVisible, setUsernameModalVisible] = useState(false);
   const [newUsername, setNewUsername] = useState('');
   const [isUpdatingUsername, setIsUpdatingUsername] = useState(false);
+  const [displayHandle, setDisplayHandle] = useState(handle); 
+
+  // Sync displayHandle when the global user hook finally loads/changes
+  useEffect(() => {
+    if (handle) setDisplayHandle(handle);
+  }, [handle]);
 
   // Scroll indices
   const [tonnageIdx, setTonnageIdx] = useState(0);
@@ -103,6 +109,16 @@ export default function ProfileScreen() {
     const user = auth.currentUser;
     if (!user) return;
 
+    // DIRECT USER DATA LISTENER
+    const unsubUser = onSnapshot(doc(db, "customers", user.uid), (docSnap) => {
+      if (docSnap.exists()) {
+        const d = docSnap.data();
+        // Priority: custom handle field, then username field, fallback to hook handle
+        const freshHandle = d.handle || d.username;
+        if (freshHandle) setDisplayHandle(freshHandle);
+      }
+    });
+
     const unsubMetrics = onSnapshot(doc(db, "customers", user.uid, "health", "metrics"), (docSnap) => {
       if (docSnap.exists()) {
         const d = docSnap.data();
@@ -128,7 +144,10 @@ export default function ProfileScreen() {
           return {
             event: eventName,
             type: dataPoints[0].type,
-            labels: dataPoints.map(d => d.date.split('/').slice(0, 2).join('/')),
+            labels: dataPoints.map(d => {
+                const parts = d.date.split('/');
+                return parts.length >= 2 ? `${parts[1]}/${parts[0]}` : d.date;
+            }),
             datasets: [{ data: dataPoints.map(d => parseFloat(d.value) || 0) }]
           };
         });
@@ -186,7 +205,10 @@ export default function ProfileScreen() {
               }
             };
           } else {
-            const lbls = filtered.map(w => w.id.split('-')[2]);
+            const lbls = filtered.map(w => {
+                const parts = w.id.split('-');
+                return parts.length >= 3 ? `${parts[1]}/${parts[2]}` : w.id;
+            });
             const tData = filtered.map(w => w.sessionTonnage || 0);
             const rData = filtered.map(w => w.readinessScore || 1);
             const sData = filtered.map(w => w.sorenessScore || 1);
@@ -214,38 +236,43 @@ export default function ProfileScreen() {
         });
 
         let fCount = 0;
-        const finishedWorkoutDates = new Set();
+        const finishedWorkoutDates = new Set<string>();
         allWorkouts.forEach(w => {
           if (w.isFinished) {
             fCount++;
-            finishedWorkoutDates.add(w.id); // Assuming ID is YYYY-MM-DD
+            finishedWorkoutDates.add(w.id); 
           }
         });
 
-        // MOMENTUM DECAY MODEL
-        let momentum = 85; // Starting baseline
+        let momentum = 100; 
+        const sortedDates = Array.from(finishedWorkoutDates).sort();
+        const firstWorkoutTs = sortedDates.length > 0 ? new Date(sortedDates[0]).setHours(0,0,0,0) : null;
+
         for (let i = 30; i >= 0; i--) {
           const d = new Date();
           d.setDate(d.getDate() - i);
-          const dateStr = d.toISOString().split('T')[0];
+          d.setHours(0, 0, 0, 0);
+          const currentTs = d.getTime();
+
+          if (firstWorkoutTs === null || currentTs < firstWorkoutTs) continue;
+
+          const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
           if (finishedWorkoutDates.has(dateStr)) {
-            // Boost toward 100
             momentum = (momentum * 0.9) + 11;
           } else {
-            // Gentle decay (loses only 2% per day missed)
             momentum = momentum * 0.98;
           }
         }
 
-        const consistencyScore = fCount > 0 ? Math.min(100, Math.round(momentum)) : 0;
+        const consistencyScore = Math.min(100, Math.round(momentum));
         setStats({ workoutCount: fCount, consistency: consistencyScore, bestRank: fCount > 0 ? '#1' : '--', loading: false });
       } catch (e) { console.error(e); }
     };
 
     processData();
-    return () => { unsubMetrics(); unsubMeets(); };
-  }, [unit]);
+    return () => { unsubUser(); unsubMetrics(); unsubMeets(); };
+  }, [unit]); // Removed handle from dependency to prevent listener re-attachment loops
 
   const handleDateInput = (text: string) => {
     if (text.length < meetDate.length) { setMeetDate(text); return; }
@@ -430,8 +457,8 @@ export default function ProfileScreen() {
             <TouchableOpacity style={styles.editIconBadge} onPress={pickImage}><Ionicons name="camera" size={16} color="#FFF" /></TouchableOpacity>
           </View>
           <Text style={styles.userName}>{fullName}</Text>
-          <TouchableOpacity onPress={() => { setNewUsername(handle); setUsernameModalVisible(true); }}>
-            <Text style={styles.userHandle}>@{handle} <Ionicons name="pencil" size={12} color="#AAA" /></Text>
+          <TouchableOpacity onPress={() => { setNewUsername(displayHandle); setUsernameModalVisible(true); }}>
+            <Text style={styles.userHandle}>@{displayHandle} <Ionicons name="pencil" size={12} color="#AAA" /></Text>
           </TouchableOpacity>
         </View>
 
@@ -555,7 +582,33 @@ export default function ProfileScreen() {
 
       {/* USERNAME MODAL */}
       <Modal visible={usernameModalVisible} transparent animationType="fade">
-        <View style={styles.modalOverlay}><View style={styles.editBox}><Text style={styles.editTitle}>Update Username</Text><TextInput style={styles.editInput} value={newUsername} onChangeText={setNewUsername} autoCapitalize="none" /><TouchableOpacity style={styles.saveUsernameBtn} onPress={async () => { if(!newUsername) return; setIsUpdatingUsername(true); const res = await updateUsername(auth.currentUser!.uid, newUsername); if(res.success) setUsernameModalVisible(false); else Alert.alert("Error", res.error); setIsUpdatingUsername(false); }} disabled={isUpdatingUsername}>{isUpdatingUsername ? <ActivityIndicator color="#FFF" /> : <Text style={styles.saveBtnText}>Save</Text>}</TouchableOpacity><TouchableOpacity onPress={() => setUsernameModalVisible(false)}><Text style={{marginTop:15,color:'#666'}}>Cancel</Text></TouchableOpacity></View></View>
+        <View style={styles.modalOverlay}>
+          <View style={styles.editBox}>
+            <Text style={styles.editTitle}>Update Username</Text>
+            <TextInput style={styles.editInput} value={newUsername} onChangeText={setNewUsername} autoCapitalize="none" />
+            <TouchableOpacity 
+              style={styles.saveUsernameBtn} 
+              onPress={async () => { 
+                if(!newUsername) return; 
+                setIsUpdatingUsername(true); 
+                const res = await updateUsername(auth.currentUser!.uid, newUsername); 
+                if(res.success) {
+                   setDisplayHandle(newUsername); // Instant UI sync
+                   setUsernameModalVisible(false);
+                } else {
+                   Alert.alert("Error", res.error); 
+                }
+                setIsUpdatingUsername(false); 
+              }} 
+              disabled={isUpdatingUsername}
+            >
+              {isUpdatingUsername ? <ActivityIndicator color="#FFF" /> : <Text style={styles.saveBtnText}>Save</Text>}
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => setUsernameModalVisible(false)}>
+              <Text style={{marginTop:15,color:'#666'}}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
       </Modal>
     </View>
   );

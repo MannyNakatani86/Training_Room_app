@@ -64,6 +64,7 @@ export const updateExerciseInDate = async (userId: string, dateString: string, u
   }
 };
 
+/*
 export const updateGlobalLeaderboard = async (userId: string, userName: string, exerciseName: string, weight: number, unit: string) => {
   // Normalize to kg for global comparison
   const weightInKg = unit === 'lbs' ? weight * 0.453592 : weight;
@@ -76,6 +77,47 @@ export const updateGlobalLeaderboard = async (userId: string, userName: string, 
       userId,
       updatedAt: new Date()
     }, { merge: true });
+  } catch (e) {
+    console.error("Error updating leaderboard", e);
+  }
+};
+*/
+
+export const updateGlobalLeaderboard = async (userId: string, userName: string, exerciseName: string, weight: number, unit: string) => {
+  // 1. Only allow specific exercises to reach the leaderboard
+  const ALLOWED_EXERCISES = [
+    "Bench Press", "Back Squat", "Front Squat", "Incline Bench Press", 
+    "Deadlift", "Clean", "Snatch", "Jerk", "Push Press", "Trap Bar Deadlift"
+  ];
+
+  if (!ALLOWED_EXERCISES.includes(exerciseName)) return;
+
+  // 2. Normalize to kg for global comparison
+  const weightInKg = unit === 'lbs' ? weight * 0.453592 : weight;
+  
+  const leaderRef = doc(db, "leaderboards", exerciseName, "rankings", userId);
+  
+  try {
+    // 3. PR Check: Only update if the new weight is heavier than the existing score
+    const currentDoc = await getDoc(leaderRef);
+    if (currentDoc.exists()) {
+      const existingScore = currentDoc.data().score;
+      if (weightInKg <= existingScore) {
+        console.log("Not a PR. Leaderboard not updated.");
+        return; 
+      }
+    }
+
+    // 4. This automatically creates the exercise document if it doesn't exist!
+    await setDoc(leaderRef, {
+      userName,
+      score: weightInKg,
+      userId,
+      verified: false, // Default to false until a coach reviews video
+      updatedAt: serverTimestamp()
+    }, { merge: true });
+
+    console.log(`Leaderboard updated for ${exerciseName}`);
   } catch (e) {
     console.error("Error updating leaderboard", e);
   }

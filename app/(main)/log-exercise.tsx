@@ -1,4 +1,5 @@
 import { auth, db } from '@/fireBaseConfig';
+import { updateGlobalLeaderboard } from '@/services/workoutService';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { collection, doc, getDoc, getDocs, query, updateDoc } from 'firebase/firestore';
@@ -9,7 +10,7 @@ import { useUser } from './_layout';
 
 export default function LogExerciseScreen() {
   const router = useRouter();
-  const { unit } = useUser();
+  const { unit, fullName } = useUser();
   const {headerHeight} = useUser();
   const insets = useSafeAreaInsets();
   const { exerciseId, exerciseName, sets } = useLocalSearchParams<{ exerciseId: string; exerciseName: string; sets: string; }>();
@@ -97,6 +98,7 @@ export default function LogExerciseScreen() {
     }
   };
 
+  /*
   const saveAndGoBack = async () => {
     const user = auth.currentUser;
     if (!user) return;
@@ -111,6 +113,48 @@ export default function LogExerciseScreen() {
         router.back();
       }
     } catch (e) { console.error(e); }
+  };
+  */
+
+  const saveAndGoBack = async () => {
+    const user = auth.currentUser;
+    if (!user) return;
+
+    try {
+      const docRef = doc(db, "customers", user.uid, "workouts", todayStr);
+      const docSnap = await getDoc(docRef);
+
+      if (docSnap.exists()) {
+        // 1. Update the local workout history (Existing code)
+        const updated = (docSnap.data().exercises || []).map((ex: any) => 
+          ex.id === exerciseId ? { ...ex, loggedWeights: weights, memo } : ex
+        );
+        await updateDoc(docRef, { exercises: updated });
+
+        // 2. NEW: Update Leaderboard logic
+        // Convert the weights array (strings) to numbers and find the highest one
+        const numericWeights = weights
+          .map(w => parseFloat(w))
+          .filter(w => !isNaN(w));
+        
+        const maxWeight = numericWeights.length > 0 ? Math.max(...numericWeights) : 0;
+
+        // Only send to leaderboard if they actually lifted something
+        if (maxWeight > 0) {
+          await updateGlobalLeaderboard(
+            user.uid,
+            fullName,            // From useUser()
+            exerciseName || '',  // From useLocalSearchParams
+            maxWeight,
+            unit                 // 'kg' or 'lbs'
+          );
+        }
+
+        router.back();
+      }
+    } catch (e) { 
+      console.error("Error saving workout and updating leaderboard:", e); 
+    }
   };
 
   if (loading) return <View style={styles.center}><ActivityIndicator color="#c62828" size="large" /></View>;
