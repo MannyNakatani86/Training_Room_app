@@ -17,7 +17,6 @@ import { useUser } from '../_layout';
 
 const { width } = Dimensions.get('window');
 
-// UPDATED EXERCISE LIST
 const EXERCISE_LIST = [
   "Bench Press", "Back Squat", "Front Squat", "Incline Bench Press", 
   "Deadlift", "Clean", "Snatch", "Jerk", "Push Press", "Trap Bar Deadlift"
@@ -32,12 +31,10 @@ export default function LeaderboardScreen() {
   const [friendsData, setFriendsData] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Verification States
   const [verifyModalVisible, setVerifyModalVisible] = useState(false);
   const [videoUri, setVideoUri] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // 1. Live Listener for Global Rankings (Top 10)
   useEffect(() => {
     setLoading(true);
     const unsub = onSnapshot(
@@ -68,8 +65,6 @@ export default function LeaderboardScreen() {
   const handleVerifySubmit = async () => {
     if (!videoUri) return Alert.alert("Video Required", "Please attach a video of your lift.");
     setIsSubmitting(true);
-    // Logic: In a real app, upload video to Storage first. 
-    // For now, we simulate the request submission.
     const userRankData = globalData.find(item => item.userId === auth.currentUser?.uid);
     const res = await submitVerificationRequest(
         auth.currentUser!.uid, 
@@ -85,6 +80,17 @@ export default function LeaderboardScreen() {
     setIsSubmitting(false);
   };
 
+  const handleAddFriend = (userId: string, userName: string) => {
+    Alert.alert(
+      "Add Friend",
+      `Send a friend request to ${userName}?`,
+      [
+        { text: "Cancel", style: "cancel" },
+        { text: "Send Request", onPress: () => console.log(`Request sent to ${userId}`) }
+      ]
+    );
+  };
+
   const renderRankIcon = (rank: number) => {
     if (rank === 1) return <Ionicons name="medal" size={24} color="#FFD700" />;
     if (rank === 2) return <Ionicons name="medal" size={24} color="#C0C0C0" />;
@@ -97,7 +103,6 @@ export default function LeaderboardScreen() {
 
   return (
     <View style={styles.container}>
-      {/* TABS */}
       <View style={styles.tabWrapper}>
         <View style={styles.tabContainer}>
           <TouchableOpacity style={[styles.tab, activeTab === 'local' && styles.activeTab]} onPress={() => setActiveTab('local')}><Text style={[styles.tabText, activeTab === 'local' && styles.activeTabText]}>Friends</Text></TouchableOpacity>
@@ -117,7 +122,6 @@ export default function LeaderboardScreen() {
             </ScrollView>
 
             <View style={styles.leaderboardWrapper}>
-              {/* YOUR STANDING CARD */}
               <Text style={styles.sectionLabel}>Your Standing</Text>
               <View style={styles.userRankBar}>
                 <View style={styles.rankInfo}>
@@ -134,7 +138,6 @@ export default function LeaderboardScreen() {
 
               <View style={styles.dividerLarge} />
 
-              {/* TOP 10 LIST */}
               <Text style={styles.sectionLabel}>Top 10 Performers</Text>
               {loading ? <ActivityIndicator color="#c62828" /> : 
                 globalData.slice(0, 10).map((user, index) => (
@@ -142,17 +145,33 @@ export default function LeaderboardScreen() {
                     <View style={styles.rankIconContainer}>{renderRankIcon(index + 1)}</View>
                     <Text style={styles.rowName}>{user.userName} {user.verified && <Ionicons name="checkmark-circle" size={14} color="#007AFF" />}</Text>
                     <Text style={styles.rowScore}>{formatWeight(user.score)}</Text>
+                    
+                    {user.userId !== auth.currentUser?.uid && (
+                      <TouchableOpacity 
+                        style={styles.addFriendIconBtn} 
+                        onPress={() => handleAddFriend(user.userId, user.userName)}
+                      >
+                        <Ionicons name="person-add-outline" size={20} color="#c62828" />
+                      </TouchableOpacity>
+                    )}
                   </View>
                 ))
               }
             </View>
           </View>
         ) : (
-          /* FRIENDS TAB - Showing all friends */
           <View style={styles.friendsContainer}>
+             {/* Header simplified (Search button removed) */}
              <Text style={styles.sectionLabel}>Friends Activity</Text>
+
              {friendsData.length === 0 ? (
-               <View style={styles.emptyFriends}><Text>Invite friends to compete!</Text></View>
+               <View style={styles.emptyFriends}>
+                  <Ionicons name="people-outline" size={60} color="#CCC" />
+                  <Text style={styles.emptyText}>Invite friends to compete!</Text>
+                  <TouchableOpacity style={styles.inviteBtn}>
+                    <Text style={styles.inviteBtnText}>Add Friends</Text>
+                  </TouchableOpacity>
+               </View>
              ) : (
                friendsData.map((f, i) => (
                  <View key={i} style={styles.rankBar}>
@@ -218,10 +237,14 @@ const styles = StyleSheet.create({
   rankIconContainer: { width: 40, alignItems: 'center' },
   rankNumText: { fontSize: 16, fontWeight: '800', color: '#8E8E93' },
   rowName: { flex: 1, fontSize: 15, fontWeight: '600', marginLeft: 10 },
-  rowScore: { fontSize: 15, fontWeight: '800', color: '#000' },
+  rowScore: { fontSize: 15, fontWeight: '800', color: '#000', marginRight: 10 },
+
+  addFriendIconBtn: { padding: 5, marginLeft: 5 },
+  emptyText: { marginTop: 15, color: '#888', fontWeight: '600' },
+  inviteBtn: { marginTop: 20, backgroundColor: '#c62828', paddingHorizontal: 25, paddingVertical: 12, borderRadius: 25 },
+  inviteBtnText: { color: '#FFF', fontWeight: 'bold' },
 
   dividerLarge: { height: 1, backgroundColor: '#DDD', marginVertical: 20 },
-  
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' },
   modalContent: { backgroundColor: '#FFF', width: '85%', borderRadius: 25, padding: 25 },
   modalTitle: { fontSize: 20, fontWeight: '900', textAlign: 'center', marginBottom: 10 },
